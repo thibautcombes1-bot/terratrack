@@ -1,0 +1,746 @@
+:root {
+  --fond: #06090d;
+  --panneau: rgba(11, 15, 20, 0.9);
+  --panneau-plein: #0d1218;
+  --carte: rgba(255, 255, 255, 0.035);
+  --bord: rgba(255, 255, 255, 0.09);
+  --texte: #e8edf2;
+  --doux: #93a1b0;
+  --ambre: #f0a63c;
+  --meshtastic: #67ea94;
+  --meshcore: #4fc3ff;
+  --haut: #b48cff;
+  --bonne: #67ea94;
+  --faible: #ffb547;
+  --aucune: #ff6b6b;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --rayon: 10px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--fond);
+  color: var(--texte);
+  font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#globe {
+  position: fixed;
+  inset: 0;
+}
+
+/* Bandeau de crédits Cesium : discret mais lisible (attributions obligatoires). */
+.cesium-widget-credits {
+  opacity: 0.55;
+  font-size: 10px !important;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* ---- Barre du haut ---- */
+
+.barre {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: calc(100vw - 440px);
+  z-index: 3;
+}
+
+.puce-reseau {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--bord);
+  border-radius: 999px;
+  background: var(--panneau);
+  backdrop-filter: blur(10px);
+  font: 12px var(--mono);
+  color: var(--doux);
+}
+
+.puce-reseau[aria-pressed='true'] {
+  color: var(--texte);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.puce-reseau .point {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.puce-reseau[aria-pressed='true'] .point {
+  opacity: 1;
+}
+
+.puce-reseau[data-reseau='meshtastic'] .point {
+  color: var(--meshtastic);
+}
+
+.puce-reseau[data-reseau='meshcore'] .point {
+  color: var(--meshcore);
+}
+
+.puce-reseau[data-reseau='relais'] .point {
+  color: var(--ambre);
+}
+
+/* ---- Panneau principal ---- */
+
+.panneau {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: 410px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bord);
+  border-radius: 14px;
+  background: var(--panneau);
+  backdrop-filter: blur(14px);
+  z-index: 4;
+  overflow: hidden;
+}
+
+.entete {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--bord);
+}
+
+.marque {
+  font: 700 15px var(--mono);
+  letter-spacing: 0.32em;
+}
+
+.marque span {
+  color: var(--ambre);
+}
+
+.entete small {
+  color: var(--doux);
+  font: 11px var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.defile {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 18px 18px;
+  scrollbar-width: thin;
+}
+
+.pied {
+  padding: 12px 18px;
+  border-top: 1px solid var(--bord);
+}
+
+h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+h3 {
+  margin: 18px 0 8px;
+  font: 600 11px var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--doux);
+}
+
+.aide {
+  color: var(--doux);
+  font-size: 12.5px;
+}
+
+/* ---- Formulaire ---- */
+
+.champ {
+  display: flex;
+  gap: 6px;
+}
+
+input[type='text'],
+textarea,
+select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--bord);
+  border-radius: var(--rayon);
+  background: rgba(255, 255, 255, 0.04);
+  outline: none;
+}
+
+input[type='text']:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--ambre);
+}
+
+textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+select option {
+  background: var(--panneau-plein);
+}
+
+.bouton-icone {
+  flex: none;
+  width: 42px;
+  border: 1px solid var(--bord);
+  border-radius: var(--rayon);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.puces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.puce {
+  padding: 6px 11px;
+  border: 1px solid var(--bord);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--doux);
+  font-size: 13px;
+}
+
+.puce[aria-pressed='true'] {
+  border-color: var(--ambre);
+  background: rgba(240, 166, 60, 0.14);
+  color: var(--texte);
+}
+
+.grille {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.grille label,
+.case {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--doux);
+}
+
+.case {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--texte);
+  padding: 4px 0;
+}
+
+.case input {
+  accent-color: var(--ambre);
+  width: 16px;
+  height: 16px;
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--doux);
+  margin: 16px 0 8px;
+  font: 600 11px var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.gouts {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px dashed var(--bord);
+  border-radius: var(--rayon);
+  font-size: 12.5px;
+  color: var(--doux);
+}
+
+.gouts button {
+  border: 0;
+  background: none;
+  color: var(--ambre);
+  padding: 0;
+  text-decoration: underline;
+}
+
+.principal {
+  width: 100%;
+  padding: 13px;
+  border: 0;
+  border-radius: var(--rayon);
+  background: var(--ambre);
+  color: #1b1307;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.principal:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.secondaires {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.secondaire {
+  flex: 1 1 auto;
+  padding: 9px 10px;
+  border: 1px solid var(--bord);
+  border-radius: var(--rayon);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.secondaire:hover,
+.bouton-icone:hover,
+.puce:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ---- Progression ---- */
+
+.etapes-progression {
+  list-style: none;
+  margin: 18px 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.etapes-progression li {
+  display: flex;
+  gap: 10px;
+  color: var(--doux);
+}
+
+.etapes-progression li::before {
+  content: '✓';
+  color: var(--bonne);
+  width: 14px;
+}
+
+.etapes-progression li:last-child {
+  color: var(--texte);
+}
+
+.etapes-progression li:last-child::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  margin: 3px 1px 0;
+  border: 2px solid var(--ambre);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: tourne 0.8s linear infinite;
+}
+
+.erreur {
+  padding: 10px 12px;
+  border-radius: var(--rayon);
+  background: rgba(255, 107, 107, 0.12);
+  color: #ffc9c9;
+}
+
+@keyframes tourne {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Carnet de voyage ---- */
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 10px 0;
+  font: 12px var(--mono);
+  color: var(--doux);
+}
+
+.stats b {
+  color: var(--texte);
+  font-weight: 600;
+}
+
+.resume {
+  margin: 8px 0 12px;
+  color: #cdd6df;
+}
+
+.couverture-globale {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0 4px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.couverture-globale span:nth-child(1) {
+  background: var(--bonne);
+}
+
+.couverture-globale span:nth-child(2) {
+  background: var(--faible);
+}
+
+.couverture-globale span:nth-child(3) {
+  background: var(--aucune);
+}
+
+.avertissement {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--faible);
+  background: rgba(255, 181, 71, 0.08);
+  font-size: 12.5px;
+}
+
+.jour {
+  margin-top: 14px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--carte);
+  overflow: hidden;
+}
+
+.jour-tete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.03);
+  text-align: left;
+}
+
+.numero {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ambre);
+  color: #1b1307;
+  font: 700 12px var(--mono);
+}
+
+.jour-tete strong {
+  display: block;
+  font-size: 15px;
+}
+
+.jour-tete small {
+  color: var(--doux);
+}
+
+.jour-corps {
+  padding: 4px 12px 12px;
+}
+
+.visite {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--bord);
+}
+
+.visite:last-of-type {
+  border-bottom: 0;
+}
+
+.visite.active {
+  background: rgba(240, 166, 60, 0.07);
+  margin: 0 -12px;
+  padding: 10px 12px;
+}
+
+.vignette {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.06);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+
+.visite-nom {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.visite-nom a,
+.visite-nom button {
+  color: var(--texte);
+  font-weight: 600;
+  text-decoration: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+}
+
+.visite-nom a:hover {
+  text-decoration: underline;
+}
+
+.etiquette {
+  font: 10.5px var(--mono);
+  color: var(--doux);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pourquoi {
+  margin: 3px 0 4px;
+  font-size: 13px;
+  color: #cdd6df;
+}
+
+.actions-visite {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.actions-visite button {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  padding: 2px 6px;
+  color: var(--doux);
+  font-size: 13px;
+}
+
+.actions-visite button:hover {
+  border-color: var(--bord);
+  color: var(--texte);
+}
+
+.actions-visite button[aria-pressed='true'] {
+  color: var(--ambre);
+}
+
+.mesh {
+  margin-left: auto;
+  font: 11px var(--mono);
+  color: var(--doux);
+  white-space: nowrap;
+}
+
+.mesh::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--doux);
+}
+
+.mesh[data-niveau='bonne']::before {
+  background: var(--bonne);
+}
+
+.mesh[data-niveau='faible']::before {
+  background: var(--faible);
+}
+
+.mesh[data-niveau='aucune']::before {
+  background: var(--aucune);
+}
+
+.ligne-info {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #cdd6df;
+}
+
+.ligne-info span:first-child {
+  flex: none;
+  width: 20px;
+  text-align: center;
+}
+
+.point-haut {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(180, 140, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(180, 140, 255, 0.08);
+  font-size: 13px;
+  width: 100%;
+  text-align: left;
+}
+
+.conseils {
+  margin: 0;
+  padding-left: 18px;
+  color: #cdd6df;
+}
+
+.conseils li {
+  margin: 4px 0;
+}
+
+.credits {
+  margin-top: 18px;
+  font-size: 11px;
+  color: var(--doux);
+}
+
+.credits a {
+  color: var(--doux);
+}
+
+/* ---- Fiche flottante (nœud ou lieu cliqué) ---- */
+
+.fiche {
+  position: fixed;
+  right: 12px;
+  bottom: 30px;
+  width: 280px;
+  padding: 12px 14px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--panneau);
+  backdrop-filter: blur(12px);
+  z-index: 5;
+}
+
+.fiche .fermer {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: 0;
+  background: none;
+  color: var(--doux);
+  font-size: 18px;
+}
+
+.fiche .etiquette {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.fiche strong {
+  display: block;
+  font-size: 15px;
+  margin-right: 18px;
+  word-break: break-word;
+}
+
+.fiche p {
+  margin: 6px 0 0;
+  color: var(--doux);
+  font: 12px var(--mono);
+}
+
+/* ---- Téléphone : le panneau devient un tiroir en bas ---- */
+
+@media (max-width: 760px) {
+  .barre {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  .puce-reseau {
+    padding: 5px 9px;
+    font-size: 11px;
+  }
+
+  .panneau {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 58vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .panneau.replie {
+    height: 64px;
+  }
+
+  .entete {
+    cursor: pointer;
+  }
+
+  .defile {
+    padding: 12px 16px 16px;
+  }
+
+  .pied {
+    padding: 10px 16px;
+  }
+
+  .fiche {
+    left: 8px;
+    right: 8px;
+    top: 56px;
+    bottom: auto;
+    width: auto;
+  }
+}
