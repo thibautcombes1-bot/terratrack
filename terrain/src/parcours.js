@@ -34,6 +34,11 @@ export const NUITS = {
 };
 /** Niveau des activités, de 1 (facile) à 4 (très difficile). Une activité sans niveau connu reste proposée ; on écarte seulement ce qui dépasse. */
 export const aMonNiveau = (l, niveauMax) => !niveauMax || !l.niveauRang || l.niveauRang <= niveauMax;
+/** Dormir sans payer : camping et aire gratuits, bivouac, abri, cabane non gardée. */
+export const GRATUITS = new Set(['Camping gratuit', 'Aire de camping-car gratuite', 'Bivouac', 'Abri (bivouac à vérifier)', 'Cabane']);
+export const estGratuit = (l) => GRATUITS.has(l?.type);
+/** Un vrai lit, pour les soirs où l'on en veut un : toujours au moins une option dans les propositions. */
+export const CONFORT = new Set(['Hôtel', "Chambre d'hôte", 'Gîte', "Gîte d'étape"]);
 export const RYTHMES = {
   tranquille: { nom: 'Tranquille', etapes: 2, conduiteH: 2 },
   normal: { nom: 'Normal', etapes: 3, conduiteH: 3 },
@@ -533,14 +538,28 @@ export function surLeTrajet(pack, plan) {
       .filter(({ sit }) => sit.ecart <= 1.5)
       .sort((a, b) => a.sit.s - b.sit.s)
       .map(({ l, sit }) => ({ ...resume(l), kmDepuisDepart: Math.round(sit.s), ecartKm: Math.round(sit.ecart * 10) / 10 }));
+    // Toujours des nuits gratuites dans les propositions (en premier), puis celles du type choisi.
+    const gratuites = j.fin.genre === 'nuit' ? nuitsGratuites(pack, j.fin, { exclus: new Set([j.fin.id]) }) : [];
     const nuits =
       j.fin.genre === 'nuit'
-        ? pack.lieux
-            .filter((l) => l.categorie === 'dormir' && l.nom && l.id !== j.fin.id && distanceKm(j.fin, l) < 12)
-            .sort((a, b) => (voulues.includes(b.type) - voulues.includes(a.type)) || distanceKm(j.fin, a) - distanceKm(j.fin, b))
-            .slice(0, 3)
-            .map((l) => ({ ...resume(l), distanceKm: Math.round(distanceKm(j.fin, l) * 10) / 10 }))
+        ? [
+            ...gratuites,
+            ...pack.lieux
+              .filter((l) => l.categorie === 'dormir' && l.nom && l.id !== j.fin.id && !gratuites.some((g) => g.id === l.id) && distanceKm(j.fin, l) < 12)
+              .sort((a, b) => (voulues.includes(b.type) - voulues.includes(a.type)) || distanceKm(j.fin, a) - distanceKm(j.fin, b))
+              .slice(0, 3)
+              .map((l) => ({ ...resume(l), distanceKm: Math.round(distanceKm(j.fin, l) * 10) / 10 })),
+          ]
         : [];
+    // Et au moins un hôtel, gîte ou chambre d'hôte, s'il y en a un à moins de 15 km.
+    if (j.fin.genre === 'nuit' && !CONFORT.has(j.fin.type) && !nuits.some((l) => CONFORT.has(l.type))) {
+      const lit = pack.lieux
+        .filter((l) => l.categorie === 'dormir' && l.nom && CONFORT.has(l.type) && Math.abs(l.lat - j.fin.lat) < 0.15 && Math.abs(l.lon - j.fin.lon) < 0.2)
+        .map((l) => ({ l, d: distanceKm(j.fin, l) }))
+        .filter((x) => x.d < 15)
+        .sort((a, b) => a.d - b.d)[0];
+      if (lit) nuits.push({ ...resume(lit.l), distanceKm: Math.round(lit.d * 10) / 10 });
+    }
     return {
       eau: repartis(proches.filter((l) => l.type === 'Eau potable'), 3),
       manger: repartis(proches.filter((l) => l.categorie === 'manger' && l.nom && /Épicerie|Boulangerie|ferme|Marché|Fromagerie|Supermarché/.test(l.type)), 4),
@@ -617,4 +636,15 @@ export function ajustementMeteo(l, r) {
   if (r.vent && VUE.test(t)) effet -= 1;
   if (r.neige && (DEHORS.has(l.activite) || VUE.test(t))) effet -= 2;
   return effet;
+}
+
+/** Les lieux gratuits pour dormir les plus proches de `pres` (à moins de `rayonKm`). */
+export function nuitsGratuites(pack, pres, { rayonKm = 15, exclus = new Set(), nombre = 2 } = {}) {
+  return pack.lieux
+    .filter((l) => l.categorie === 'dormir' && estGratuit(l) && !exclus.has(l.id) && Math.abs(l.lat - pres.lat) < rayonKm / 100 && Math.abs(l.lon - pres.lon) < rayonKm / 70)
+    .map((l) => ({ l, d: distanceKm(pres, l) }))
+    .filter((x) => x.d < rayonKm)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, nombre)
+    .map(({ l, d }) => ({ ...resume(l), distanceKm: Math.round(d * 10) / 10 }));
 }

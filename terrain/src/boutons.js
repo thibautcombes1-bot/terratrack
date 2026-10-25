@@ -3,7 +3,7 @@
 import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire } from '../../commun/routeur.js';
 import { preparerRoute, rectangle, situer } from '../../server/itineraire.js';
-import { NUITS, aMonNiveau, dureeVisite, interet, plaitA } from './parcours.js';
+import { CONFORT, GRATUITS, NUITS, aMonNiveau, dureeVisite, estGratuit, interet, plaitA } from './parcours.js';
 import { coucherSoleil } from './soleil.js';
 
 export const BOUTONS = {
@@ -69,7 +69,9 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
   const voulu = (l) => {
     if (l.categorie !== bouton || dejaPrevus.has(l.id)) return false;
     if (bouton === 'decouvrir') return Boolean(l.nom) && aMonNiveau(l, plan.params.niveauMax);
-    if (bouton === 'dormir') return typesNuit.length === 0 || typesNuit.includes(l.type);
+    // Les lieux gratuits sont toujours proposés, en plus du type de nuit choisi.
+    // … et un hôtel, gîte ou chambre d'hôte, pour avoir toujours un vrai lit dans les propositions.
+    if (bouton === 'dormir') return typesNuit.length === 0 || typesNuit.includes(l.type) || GRATUITS.has(l.type) || CONFORT.has(l.type);
     if (bouton === 'carburant') return !carburant || !l.carburants || l.carburants.includes(carburant);
     return true;
   };
@@ -121,12 +123,17 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
       .sort((a, b) => (a.prix?.[carburant] ?? Infinity) - (b.prix?.[carburant] ?? Infinity) || a.detourMin - b.detourMin);
   else if (bouton === 'manger')
     liste = avecDetours.filter((s) => s.detourMin <= regle.detourMax).sort((a, b) => a.detourMin - b.detourMin || a.atteindreMin - b.atteindreMin);
-  // Dormir : d'abord ce qu'on atteint avant la nuit, le plus loin possible sur la route.
+  // Dormir : d'abord ce qu'on atteint avant la nuit, les gratuits en premier, puis le plus loin sur la route.
   else
     liste = avecDetours
       .filter((s) => s.detourMin <= regle.detourMax)
-      .sort((a, b) => (b.margeNuit >= 30) - (a.margeNuit >= 30) || b.atteindreMin - a.atteindreMin);
+      .sort((a, b) => (b.margeNuit >= 30) - (a.margeNuit >= 30) || estGratuit(b) - estGratuit(a) || b.atteindreMin - a.atteindreMin);
 
+  // Dormir : parmi les 6 propositions, au moins un vrai lit (hôtel, gîte…) s'il y en a un.
+  if (bouton === 'dormir' && !liste.slice(0, 6).some((s) => CONFORT.has(s.type))) {
+    const lit = liste.find((s) => CONFORT.has(s.type));
+    if (lit) liste = [...liste.slice(0, 5).filter((s) => s !== lit), lit];
+  }
   // Demande faite à l'IA : ce qui correspond passe devant, dans l'ordre déjà établi.
   if (correspond) liste = [...liste.filter(correspond), ...liste.filter((s) => !correspond(s))];
   return { suggestions: liste.slice(0, 6), resteMin, coucher };

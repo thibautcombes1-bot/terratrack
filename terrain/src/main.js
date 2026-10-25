@@ -31,6 +31,8 @@ import {
   plaitA,
   supprimerEtape,
   totaux,
+  estGratuit,
+  nuitsGratuites,
   pleinsPrevus,
   stationsSurLaRoute,
 } from './parcours.js';
@@ -586,7 +588,7 @@ function rendreCompteRendu(zone) {
               ? `<div class="titre">Où dormir le soir</div>${nuits
                   .map(
                     (l, k) =>
-                      `<label class="coche"><input type="radio" name="nuit-${i}" data-cr="nuit" data-j="${i}" data-id="${h(l.id)}" ${k === 0 ? 'checked' : ''} /><span><b>${h(l.nom)}</b> <small>${h(l.type ?? '')}${k === 0 ? ' · proposé' : ` · à ${l.distanceKm} km`}</small></span></label>`,
+                      `<label class="coche"><input type="radio" name="nuit-${i}" data-cr="nuit" data-j="${i}" data-id="${h(l.id)}" ${k === 0 ? 'checked' : ''} /><span><b>${estGratuit(l) ? '🆓 ' : ''}${h(l.nom || l.type)}</b> <small>${estGratuit(l) ? 'Gratuit · ' : ''}${h(l.type ?? '')}${k === 0 ? ' · proposé' : ` · à ${String(l.distanceKm).replace('.', ',')} km`}</small></span></label>`,
                   )
                   .join('')}`
               : ''
@@ -638,6 +640,15 @@ function validerCompteRendu() {
   document.querySelector('.contenu').scrollTop = 0;
 }
 
+/** Sous une nuit payante : le lieu gratuit le plus proche, pour dormir sans payer. */
+let gratuitesAffichees = [];
+function ligneNuitGratuite(fin, i) {
+  if (fin.genre !== 'nuit' || estGratuit(fin)) return '';
+  const [g] = nuitsGratuites(pack, fin, { nombre: 1 });
+  if (!g) return '';
+  gratuitesAffichees[i] = g;
+  return `<small class="gratuit">🆓 Gratuit tout près : ${h(g.nom || g.type)} (${h(g.type)}, ${String(g.distanceKm).replace('.', ',')} km) · <button type="button" class="lien" data-action="nuit-gratuite" data-j="${i}">dormir là</button></small>`;
+}
 let passeesAffichage = new Set();
 function rendreJour(j, i) {
   const etapes = j.etapes
@@ -676,6 +687,7 @@ function rendreJour(j, i) {
           <div class="nom">${soir} : ${h(fin.nom)}</div>
           <small>${fin.type ? `${h(fin.type)} · ` : ''}${marge}</small>
           ${meteoEtape(fin, j.date, fin.arriveeMin)}
+          ${ligneNuitGratuite(fin, i)}
           ${infoDatee(fin)}
           <div class="actions">${boutonGuidage(fin)}${boutonMenu(`nuit:${i}`, fin, () => [allerA(fin), pourMoi(fin)])}</div>
         </div>
@@ -749,6 +761,13 @@ $('#parcours').addEventListener('click', (ev) => {
     }
     case 'kml':
       return envoyerJournee(j);
+    case 'nuit-gratuite': {
+      const g = gratuitesAffichees[j];
+      if (!g) return;
+      changerNuit(pack, plan, j, g);
+      afficherToast(`🆓 Nuit gratuite : ${g.nom || g.type}.`);
+      break;
+    }
     case 'alternative': {
       const [a] = plan.alternatives.splice(Number(b.dataset.i), 1);
       ajouterEtape(pack, plan, a.jour, a);
@@ -1148,7 +1167,7 @@ function rendreSuggestions(liste, resteMin) {
         <div class="suggestion" data-lieu-id="${h(s.id)}">
           <div class="rang" style="background:${COULEURS[dernierBouton]}">${i + 1}</div>
           <div>
-            <div class="nom"><b>${h(s.nom || s.type)}</b>${badgeNiveau(s)}</div>
+            <div class="nom"><b>${dernierBouton === 'dormir' && estGratuit(s) ? '🆓 ' : ''}${h(s.nom || s.type)}</b>${badgeNiveau(s)}</div>
             <small class="info">${h(s.nom ? s.type : '')} ${acces}</small>
             ${dernierBouton === 'carburant' ? `<small class="info"><span class="prix">${prixStation(s, vehiculeCalcul().carburant) || 'prix inconnu'}</span>${s.h24 ? ' · 24/24' : ''}</small>` : ''}
             ${s.niveauTexte || s.details?.length ? `<small class="info">${h([s.niveauTexte, ...(s.details ?? [])].filter(Boolean).join(' · '))}</small>` : ''}

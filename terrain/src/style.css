@@ -1030,3 +1030,9 @@ dialog#menu-lieu::backdrop {
   color: #1a5fb4;
   font-size: 12.5px;
 }
+
+.gratuit {
+  display: block;
+  color: var(--vert);
+  font-size: 12.5px;
+}
