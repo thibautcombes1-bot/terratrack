@@ -383,12 +383,14 @@ form.addEventListener('submit', async (ev) => {
   }
   const calculer = (extra = {}) => {
     if (mode !== 'plein') return planifier(pack, { ...p, ...extra });
-    let rayon = porteePlein().rayon;
+    // On resserre la boucle pour tenir avec le plein, mais pas sous 60 % de sa portée : un long
+    // voyage demande plusieurs pleins, et c'est mieux qu'un voyage au pas de sa porte.
+    const depart = porteePlein().rayon;
     let essai;
-    for (let n = 0; n < 5; n++) {
+    for (let rayon = depart; rayon >= depart * 0.6; rayon *= 0.8) {
       essai = planifier(pack, { ...p, ...extra, porteeMaxKm: rayon });
-      if (!bilanCarburant(essai.jours, vehiculeCalcul(), []).alerte) break;
-      rayon *= 0.75;
+      essai.pleinSuffit = !bilanCarburant(essai.jours, vehiculeCalcul(), []).alerte;
+      if (essai.pleinSuffit) break;
     }
     return essai;
   };
@@ -658,7 +660,11 @@ function rendreCompteRendu(zone) {
     ${blocCarburant()}
     <p class="info">Ce qui te plaît : ${h([...plan.params.envies.map((e) => ENVIES[e]), ...(plan.params.veutBeauTemps ? ['☀️ Beau temps'] : [])].join(', ') || 'rien de coché')}</p>
     ${plan.favorisInclus ? `<p class="info">⭐ ${plan.favorisInclus} lieu(x) de ta liste « Plus tard » inclus.</p>` : ''}
-    ${plan.params.mode === 'plein' ? '<p class="info">⛽ Boucle choisie pour ton plein : retour au départ sans refaire le plein.</p>' : ''}
+    ${
+      plan.params.mode === 'plein'
+        ? `<p class="info">⛽ ${plan.pleinSuffit !== false ? 'Boucle choisie pour ton plein : retour au départ sans refaire le plein.' : 'Ce voyage demande plus d’un plein : les stations conseillées (les moins chères) sont dans l’encadré carburant.'}</p>`
+        : ''
+    }
     ${(plan.avertissements ?? []).map((a) => `<p class="alerte">⚠️ ${h(a)}</p>`).join('')}
     ${plan.jours
       .map((j, i) => {
@@ -770,6 +776,7 @@ function rendreJour(j, i) {
         <strong>Jour ${i + 1} · ${dateTexte(j.date)}</strong>
         <small>Départ ${heure(j.heureDepart)} de ${h(j.debut.nom)} · ${km(j.metres)} · ${duree(j.conduiteMin)} de route${j.peage ? ' · péage' : ''}${j.routes.length ? ` · ${h(j.routes.join(', '))}` : ''}</small>
       </button>
+      ${!j.etapes.length && j.fin.surPlace ? `<small class="info fait-avant">🏕️ Journée sur place autour de ${h(j.debut.nom)} : repos, balades, et les boutons « En route » pour trouver quoi faire.</small>` : ''}
       ${j.faites?.length ? `<small class="info fait-avant">✓ Déjà fait : ${h(j.faites.map((e) => e.nom).join(', '))}</small>` : ''}
       ${etapes}
       <div class="actions jour-actions"><button type="button" data-action="kml" data-j="${i}">📤 Envoyer la journée à Organic Maps</button></div>

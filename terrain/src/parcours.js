@@ -117,11 +117,13 @@ export function dureeVisite(l) {
 const resume = (l) => ({ notoriete: l.notoriete, classe: l.classe, id: l.id, nom: l.nom, type: l.type, activite: l.activite, unesco: l.unesco, longueurKm: l.longueurKm, niveau: l.niveau, niveauRang: l.niveauRang, niveauTexte: l.niveauTexte, details: l.details, dureeH: l.activite ? l.dureeH : undefined, lat: l.lat, lon: l.lon, labels: l.labels, categorie: l.categorie, horaires: l.horaires, date: l.date, verifie: l.verifie, tel: l.tel, site: l.site, prix: l.prix, prixLe: l.prixLe, h24: l.h24, carburants: l.carburants, idPrix: l.idPrix, adresse: l.adresse });
 
 /** « Surprends-moi » : le coin le plus riche en lieux remarquables à bonne distance. */
-function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = null) {
-  // Les lieux gardés « pour plus tard » attirent le voyage vers leur coin.
+function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = null, envies = []) {
+  // Les lieux gardés « pour plus tard » attirent le voyage vers leur coin, et ce qui répond aux
+  // envies cochées compte triple : une semaine « via ferrata » part là où il y en a.
   // Seulement ceux à portée, rangés dans une grille de ~15 km : on ne compare que les voisins.
+  const voulu = (l) => envies.length > 0 && l.nom && plaitA(l, envies);
   const remarquables = lieux.filter(
-    (l) => (favoris.has(l.id) || (l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5)) && distanceKm(depart, l) <= porteeKm + 15,
+    (l) => (favoris.has(l.id) || voulu(l) || (l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5)) && distanceKm(depart, l) <= porteeKm + 15,
   );
   const grille = new Map();
   const cle = (i, j) => `${i}:${j}`;
@@ -140,7 +142,14 @@ function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = n
     const d = distanceKm(depart, l);
     if (d < porteeKm * 0.25 || d > porteeKm) continue;
     let score = (Math.random() - 0.5) * 2;
-    for (const autre of voisins(l)) if (distanceKm(l, autre) < 15) score += favoris.has(autre.id) ? 6 : interet(autre);
+    let repond = 0;
+    for (const autre of voisins(l)) {
+      if (distanceKm(l, autre) >= 15) continue;
+      score += favoris.has(autre.id) ? 6 : interet(autre) * (voulu(autre) ? 3 : 1);
+      if (voulu(autre)) repond++;
+    }
+    // Un coin sans rien de ce qu'on aime ne vaut presque rien.
+    if (envies.length && !repond) score *= 0.2;
     // « Beau temps » : là où il fera beau compte plus que tout le reste.
     if (beauTemps) score *= beauTemps(l) ?? 1;
     if (score > meilleurScore) {
@@ -247,7 +256,7 @@ export function planifier(pack, p) {
   // Jusqu'où aller : selon les jours et le rythme, et pas plus loin que ce que permet le plein (mode « Avec mon plein »).
   const porteeKm = Math.min(p.porteeMaxKm ?? Infinity, rythme.conduiteH * 45 * Math.max(1, nbJours) * (boucle ? 0.35 : 0.8));
   const cible =
-    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris, p.beauTemps) ?? p.depart;
+    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris, p.beauTemps, p.envies) ?? p.depart;
 
   const loin = distanceKm(p.depart, cible) > 1.5;
   const base = loin ? itineraire(pack.graphe, p.depart, cible, { eviterPeages: Boolean(p.eviterPeages), economie: Boolean(p.economie) }) : null;
@@ -388,6 +397,12 @@ export function planifier(pack, p) {
   }
   const fin = boucle ? p.depart : cible;
   const groupes = choisis.length ? decouperJours(choisis, nbJours, { depart: p.depart, fin, vitesse: 45 }) : [[]];
+  // Moins d'étapes que de jours : on garde la durée demandée avec des journées sur place
+  // (même nuit, temps libre), au plus beau du voyage : le coin pour une boucle, l'arrivée sinon.
+  while (groupes.length < nbJours) {
+    const ou = boucle ? Math.max(1, Math.ceil(groupes.length / 2)) : Math.max(1, groupes.length - 1);
+    groupes.splice(ou, 0, []);
+  }
 
   const jours = [];
   const nuitsPrises = new Set();
@@ -396,6 +411,8 @@ export function planifier(pack, p) {
     const dernier = i === groupes.length - 1;
     let finJour;
     if (dernier) finJour = { nom: fin.nom, lat: fin.lat, lon: fin.lon, genre: boucle ? 'retour' : 'arrivee' };
+    // Journée sur place : on reste où l'on a dormi.
+    else if (!etapes.length && i > 0) finJour = { ...jours.at(-1).fin, surPlace: true };
     else {
       finJour = p.nuits.includes('debrouille')
         ? nuitLibre(pack, etapes.at(-1) ?? debut)
