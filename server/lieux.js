@@ -1,6 +1,7 @@
 // Lieux réels : géocodage (Photon, données OpenStreetMap) et lieux notables
 // autour d'un point (articles Wikipédia géolocalisés), altitude par Open-Meteo.
 // Les serveurs Overpass publics refusent désormais ce genre de requêtes : on ne s'en sert pas.
+import fs from 'node:fs';
 import { distanceKm } from '../commun/geo.js';
 import { avecCache, lireJson } from './cache.js';
 
@@ -38,11 +39,11 @@ export const ENVIES = {
 };
 
 /** Articles géolocalisés sans intérêt pour un voyage. */
-const SANS_INTERET =
-  /canton|arrondissement|intercommunal|communauté de communes|monument aux morts|\bgare\b|aéroport|collège|lycée|école|stade|autoroute|route (départementale|nationale)|hôpital|cimetière|élection|club|entreprise|usine|zone d'activité|circonscription|liste d|bataille|siège|guerre|combat|traité|massacre|incendie|accident|attentat|séisme|inondation|station d'épuration|prison|caserne/i;
+export const SANS_INTERET =
+  /parc naturel régional|parc national|région naturelle|pays traditionnel|plateau calcaire|massif montagneux|canton|arrondissement|intercommunal|communauté de communes|monument aux morts|\bgare\b|aéroport|collège|lycée|école|stade|autoroute|route (départementale|nationale)|hôpital|cimetière|élection|club|entreprise|usine|zone d'activité|circonscription|liste d|bataille|siège|guerre|combat|traité|massacre|incendie|accident|attentat|séisme|inondation|station d'épuration|prison|caserne/i;
 
 /** Sommets, cols et belvédères : candidats « point haut radio ». */
-const POINT_HAUT = /\bmont\b|montagne|sommet|\bpic\b|puech|\bcol\b|signal|crête|plateau|émetteur|belvédère|\broc\b|\btuc\b/i;
+export const POINT_HAUT = /\bmont\b|montagne|sommet|\bpic\b|puech|\bcol\b|signal|crête|plateau|émetteur|belvédère|\broc\b|\btuc\b/i;
 
 // Géocodage : Photon d'abord (rapide, sans quota), Nominatim en secours.
 // Nominatim demande au plus une requête par seconde : on les espace.
@@ -134,6 +135,29 @@ export async function nomDuLieu({ lat, lon }) {
   }
 }
 
+// Wikipédia limite les requêtes trop rapprochées (erreur 429) : une à la fois, espacées,
+// avec de nouvelles tentatives.
+let fileWikipedia = Promise.resolve();
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function wikipedia(url) {
+  const tache = fileWikipedia.then(async () => {
+    for (let essai = 0; ; essai++) {
+      try {
+        return await lireJson(url, { delaiMs: 20_000 });
+      } catch (erreur) {
+        if (!/ 429/.test(erreur.message) || essai >= 4) throw erreur;
+        await pause(2000 * (essai + 1));
+      }
+    }
+  });
+  fileWikipedia = tache.then(
+    () => pause(300),
+    () => pause(300),
+  );
+  return tache;
+}
+
 /** Articles Wikipédia dans un rayon de 10 km au plus (limite de l'API). */
 async function articlesAutour(centre, langue) {
   const p = new URLSearchParams({
@@ -144,13 +168,12 @@ async function articlesAutour(centre, langue) {
     ggscoord: `${centre.lat.toFixed(5)}|${centre.lon.toFixed(5)}`,
     ggsradius: '10000',
     ggslimit: '100',
-    prop: 'description|coordinates|pageimages',
+    // Pas de vignettes ici : Wikipédia les limite fortement. On les demande à la fin,
+    // seulement pour les lieux retenus (ajouterImages).
+    prop: 'description|coordinates|info',
     colimit: 'max',
-    piprop: 'thumbnail',
-    pithumbsize: '400',
-    pilimit: '50',
   });
-  const reponse = await lireJson(`https://${langue}.wikipedia.org/w/api.php?${p}`, { delaiMs: 20_000 });
+  const reponse = await wikipedia(`https://${langue}.wikipedia.org/w/api.php?${p}`);
   return (reponse.query?.pages ?? []).map((page) => ({ ...page, langue }));
 }
 
@@ -169,18 +192,76 @@ async function altitudes(points) {
   return resultat;
 }
 
-function categorieDe(texte, envies) {
+export function categorieDe(texte, envies) {
   for (const id of envies) if (ENVIES[id].motif.test(texte)) return id;
   for (const [id, envie] of Object.entries(ENVIES)) if (envie.motif.test(texte)) return id;
   return 'autre';
 }
 
+// Base locale des lieux de France (outils/construire-lieux.mjs) : aucune requête,
+// aucun quota. Chargée à la première utilisation, rangée par cases de 0,1°.
+const FRANCE = { sud: 41.3, nord: 51.2, ouest: -5.2, est: 9.7 };
+let baseLocale;
+
+function chargerBase() {
+  if (baseLocale !== undefined) return baseLocale;
+  try {
+    const { lieux } = JSON.parse(fs.readFileSync(new URL('./donnees/lieux.json', import.meta.url), 'utf8'));
+    const cases = new Map();
+    for (const l of lieux) {
+      const cle = `${Math.floor(l[2] * 10)}:${Math.floor(l[3] * 10)}`;
+      if (!cases.has(cle)) cases.set(cle, []);
+      cases.get(cle).push(l);
+    }
+    baseLocale = cases;
+  } catch {
+    baseLocale = null;
+  }
+  return baseLocale;
+}
+
+const majuscule = (texte) => texte.charAt(0).toUpperCase() + texte.slice(1);
+
+function lieuxLocaux(centre, rayonKm, envies) {
+  const cases = chargerBase();
+  const dLat = rayonKm / 110.57;
+  const dLon = rayonKm / (111.32 * Math.cos((centre.lat * Math.PI) / 180));
+  const lieux = [];
+  for (let i = Math.floor((centre.lat - dLat) * 10); i <= Math.floor((centre.lat + dLat) * 10); i++)
+    for (let j = Math.floor((centre.lon - dLon) * 10); j <= Math.floor((centre.lon + dLon) * 10); j++)
+      for (const [id, nom, lat, lon, description, liens, classe, ele, image, article] of cases.get(`${i}:${j}`) ?? []) {
+        const distance = distanceKm(centre, { lat, lon });
+        if (distance > rayonKm) continue;
+        const texte = `${nom} ${description}`;
+        lieux.push({
+          id,
+          categorie: categorieDe(texte, envies),
+          nom: majuscule(nom),
+          description,
+          lat,
+          lon,
+          distanceKm: Math.round(distance * 10) / 10,
+          liens,
+          monumentClasse: classe === 1,
+          ele: ele ?? undefined,
+          image: image ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(image)}?width=400` : undefined,
+          lien: `https://fr.wikipedia.org/wiki/${encodeURIComponent(article)}`,
+          hautPossible: POINT_HAUT.test(texte),
+        });
+      }
+  return lieux;
+}
+
 /**
- * Lieux notables autour d'une base : { id, categorie, nom, description, lat, lon,
- * distanceKm, image, lien, ele? }. Les points hauts ont la catégorie « haut ».
+ * Lieux notables autour d'un point : { id, categorie, nom, description, lat, lon,
+ * distanceKm, image, lien, ele? }. En France, la base locale ; ailleurs, Wikipédia en direct.
  */
 export async function lieuxAutour(centre, { envies, pointsHauts }) {
-  const cle = `wiki-${centre.lat.toFixed(3)}-${centre.lon.toFixed(3)}`;
+  const enFrance =
+    centre.lat > FRANCE.sud && centre.lat < FRANCE.nord && centre.lon > FRANCE.ouest && centre.lon < FRANCE.est;
+  if (enFrance && chargerBase()) return lieuxLocaux(centre, 10, envies);
+
+  const cle = `wiki2-${centre.lat.toFixed(3)}-${centre.lon.toFixed(3)}`;
   const { valeur: pages } = await avecCache(cle, 7 * 86_400_000, async () => {
     let liste = await articlesAutour(centre, 'fr');
     // Hors de France, Wikipédia en français est maigre : on complète en anglais.
@@ -202,7 +283,10 @@ export async function lieuxAutour(centre, { envies, pointsHauts }) {
       lat: coord.lat,
       lon: coord.lon,
       distanceKm: Math.round(distanceKm(centre, coord) * 10) / 10,
-      image: page.thumbnail?.source,
+      pageid: page.pageid,
+      langue: page.langue,
+      // Longueur de l'article : un indice de notoriété qui ne coûte rien.
+      longueur: page.length,
       lien: `https://${page.langue}.wikipedia.org/wiki/${encodeURIComponent(page.title.replaceAll(' ', '_'))}`,
       hautPossible: POINT_HAUT.test(texte),
     });
@@ -218,4 +302,31 @@ export async function lieuxAutour(centre, { envies, pointsHauts }) {
     }
   }
   return lieux;
+}
+
+/** Vignettes des lieux retenus : une requête par langue (50 pages au plus). */
+export async function ajouterImages(lieux) {
+  const parLangue = new Map();
+  for (const l of lieux) if (l.pageid && !l.image) parLangue.set(l.langue, [...(parLangue.get(l.langue) ?? []), l]);
+  for (const [langue, liste] of parLangue)
+    for (let i = 0; i < liste.length; i += 50) {
+      const lot = liste.slice(i, i + 50);
+      const p = new URLSearchParams({
+        action: 'query',
+        format: 'json',
+        formatversion: '2',
+        pageids: lot.map((l) => l.pageid).join('|'),
+        prop: 'pageimages',
+        piprop: 'thumbnail',
+        pithumbsize: '400',
+        pilimit: '50',
+      });
+      try {
+        const reponse = await wikipedia(`https://${langue}.wikipedia.org/w/api.php?${p}`);
+        const images = new Map((reponse.query?.pages ?? []).map((page) => [page.pageid, page.thumbnail?.source]));
+        for (const l of lot) l.image = images.get(l.pageid);
+      } catch (erreur) {
+        console.warn(`[lieux] vignettes indisponibles : ${erreur.message}`);
+      }
+    }
 }

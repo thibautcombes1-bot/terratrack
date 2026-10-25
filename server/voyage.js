@@ -1,24 +1,70 @@
-// Génération d'un voyage : l'IA choisit les étapes (de préférence parmi des communes
-// labellisées), Wikipédia fournit les vrais lieux autour, l'IA choisit parmi eux et
-// écrit le carnet, puis on ajoute couverture mesh, points hauts et tracé.
-import { distanceKm, plusProcheVoisin, parLots } from '../commun/geo.js';
-import { couverture, noeudsDansRayon, zonesDenses } from '../commun/couverture.js';
-import { etapesAPortee } from './etapes.js';
+// Génération d'un road trip.
+// 1. On trace la route vers la destination (ou le coin à explorer).
+// 2. On ramasse les lieux intéressants dans un couloir le long de la route et autour du coin
+//    (Wikipédia + villages et sites labellisés).
+// 3. L'IA note ces lieux selon les goûts de la personne.
+// 4. Le moteur (itineraire.js) choisit les lieux sur tout le parcours, les met dans un ordre
+//    sans allers-retours et découpe les journées.
+// 5. L'IA écrit le carnet ; on ajoute nuits, tracé réel, points hauts et couverture mesh.
+import { couverture, noeudsDansRayon } from '../commun/couverture.js';
+import { distanceKm, parLots } from '../commun/geo.js';
+import { ETAPES } from './etapes.js';
 import { demanderJson, nomModele } from './ia.js';
+import { cleOrdre, decouperJours, echantillonner, grilleCoin, preparerRoute, selectionner } from './itineraire.js';
+import { ajouterImages, ENVIES, geocoder, lieuxAutour, nomDuLieu } from './lieux.js';
 import { noeudsDe, RESEAUX } from './mesh.js';
-import { ENVIES, geocoder, lieuxAutour, nomDuLieu } from './lieux.js';
 import { TRANSPORTS, tracer } from './trace.js';
 
-/** Envies de style : elles guident l'IA mais ne correspondent pas à des lieux OSM. */
+/** Envies de style : elles guident le tri et l'écriture, sans correspondre à un type de lieu. */
 export const STYLES = {
+  routes: 'routes panoramiques',
   calme: 'calme, loin de la foule',
   photo: 'beaux spots photo',
-  routes: 'routes panoramiques',
   local: 'produits et rencontres locales',
   soiree: 'sorties le soir',
 };
 
 const ENVIES_PAR_DEFAUT = ['nature', 'panoramas', 'patrimoine', 'villages'];
+const POIDS_LABELS = {
+  'Grand Site de France': 3.5,
+  'Plus Beaux Villages de France': 3,
+  'Plus Beaux Détours de France': 2.5,
+  'Petite Cité de Caractère': 2,
+  "Ville ou Pays d'art et d'histoire": 2,
+};
+/** Intérêt de base d'un type de lieu (une commune quelconque vaut peu, un site naturel beaucoup). */
+const INTERET = {
+  villages: 0.2,
+  patrimoine: 1,
+  nature: 1.2,
+  panoramas: 1.2,
+  randonnee: 0.8,
+  baignade: 1,
+  musees: 0.8,
+  gastronomie: 0.9,
+  aventure: 0.8,
+  insolite: 1,
+  astronomie: 0.8,
+  autre: 0,
+};
+const DUREE_VISITE = {
+  randonnee: 2.5,
+  aventure: 2,
+  baignade: 1.5,
+  musees: 1.5,
+  nature: 1.2,
+  astronomie: 1,
+  villages: 1,
+  patrimoine: 1,
+  gastronomie: 1,
+  insolite: 0.8,
+  panoramas: 0.5,
+  autre: 0.8,
+};
+const VISITES_PAR_JOUR = { voiture: 4, moto: 4, van: 3, train: 3, velo: 3, pied: 2 };
+/** Détour maximal (km) de part et d'autre de la route. */
+const LARGEUR = { voiture: 12, moto: 12, van: 10, train: 6, velo: 5, pied: 2.5 };
+const ESPACEMENT = { voiture: 4, moto: 4, van: 4, train: 2, velo: 2, pied: 1 };
 const ALTITUDE_MAX = { tranquille: 1200, moyen: 2000, sportif: 2800 };
 
 const LIBELLES = {
@@ -48,32 +94,23 @@ const LIBELLES = {
   },
 };
 
-const SYSTEME = `Tu es Horizon, un guide de voyage qui connaît très bien la France et le voyage lent.
-Tu proposes des voyages réalistes, adaptés aux goûts, à l'énergie et au budget de la personne.
+const SYSTEME = `Tu es TerraTrack, un spécialiste du road trip et du voyage lent, qui connaît très bien la France.
 Tu écris en français, avec un ton chaleureux et concret, sans superlatifs creux.
-Tu écris tout en français, y compris les thèmes et les titres.
-Tu n'inventes jamais d'horaires, de prix, de jours d'ouverture ni de faits précis dont tu n'es pas sûr.
+Tu n'inventes jamais d'horaires, de prix, de numéros de route ni de faits précis dont tu n'es pas sûr.
 Tu réponds uniquement avec du JSON conforme au schéma demandé.`;
 
+// Les bornes de longueur empêchent un modèle local de boucler dans un champ (ia.js les retire pour Claude).
 const objet = (proprietes) => ({
   type: 'object',
   properties: proprietes,
   required: Object.keys(proprietes),
   additionalProperties: false,
 });
-// Les bornes de longueur empêchent un modèle local de boucler dans un champ (ia.js les retire pour Claude).
 const texte = (max) => ({ type: 'string', maxLength: max });
 const entier = { type: 'integer' };
 const liste = (items, max) => ({ type: 'array', items, maxItems: max });
 
-const SCHEMA_PLAN = objet({
-  titre: texte(80),
-  idee: texte(200),
-  etapes: liste(
-    objet({ jour: entier, id: texte(12), lieu: texte(60), departement: texte(40), theme: texte(70) }),
-    14,
-  ),
-});
+const SCHEMA_NOTES = objet({ notes: liste(objet({ id: texte(20), note: entier }), 60) });
 
 const SCHEMA_CARNET = objet({
   titre: texte(80),
@@ -81,7 +118,9 @@ const SCHEMA_CARNET = objet({
   jours: liste(
     objet({
       jour: entier,
-      visites: liste(objet({ id: texte(16), pourquoi: texte(260) }), 4),
+      titre: texte(70),
+      route: texte(300),
+      visites: liste(objet({ id: texte(20), pourquoi: texte(260) }), 8),
       nuit: texte(200),
       budget: entier,
       astuce: texte(260),
@@ -98,200 +137,315 @@ const SCHEMA_CARNET = objet({
 export async function genererVoyage(d, signaler) {
   const transport = TRANSPORTS[d.transport] ? d.transport : 'voiture';
   const t = TRANSPORTS[transport];
-  const jours = Math.min(14, Math.max(0.5, Number(d.jours) || 1));
-  const nbEtapes = jours <= 1 ? 1 : Math.round(jours);
-  const kmJour = Math.round(t.kmJour * (jours < 1 ? 0.5 : 1));
-  const retour = d.retour !== false;
-  const rayonGlobal = Math.min(600, (kmJour * Math.max(1, jours)) / (retour ? 2 : 1));
+  const jours = Math.min(14, Math.max(0.25, Number(d.jours) || 1));
+  const nbJours = jours <= 1 ? 1 : Math.round(jours);
+  const kmJour = t.kmJour * Math.min(1, jours);
+  const mode = ['destination', 'coin', 'surprise'].includes(d.mode) ? d.mode : 'surprise';
+  const boucle = mode === 'destination' ? Boolean(d.retour) : d.retour !== false;
   const envies = (d.envies ?? []).filter((e) => ENVIES[e]);
   const styles = (d.envies ?? []).filter((e) => STYLES[e]);
   const reseaux = (d.mesh?.reseaux ?? []).filter((r) => RESEAUX.includes(r));
   const profil = d.profil ?? {};
   const ia = d.ia === 'claude' ? 'claude' : 'ollama';
+  const largeur = LARGEUR[transport];
   const avertissements = [];
 
-  signaler('Je trouve ton point de départ…');
+  signaler('Je situe ton départ…');
   const depart =
     d.depart?.lat != null
-      ? {
-          nom: d.depart.texte || (await nomDuLieu(d.depart)) || 'Ma position',
-          lat: d.depart.lat,
-          lon: d.depart.lon,
-        }
+      ? { nom: d.depart.texte || (await nomDuLieu(d.depart)) || 'Ma position', lat: d.depart.lat, lon: d.depart.lon }
       : await geocoder(d.depart?.texte ?? '');
   if (!depart) throw new Error(`Départ introuvable : « ${d.depart?.texte ?? ''} ».`);
 
+  const eviter = new Set((d.eviter ?? []).map((n) => n.toLowerCase()));
+  let cible;
+  let rayonCoin;
+  if (mode === 'surprise') {
+    signaler('Je cherche un coin qui vaut le détour…');
+    const portee = Math.max(15, kmJour * Math.max(1, jours) * (boucle ? 0.35 : 0.8));
+    cible = choisirCoin(depart, portee, eviter) ?? depart;
+    rayonCoin = cible === depart ? Math.min(40, Math.max(8, portee)) : rayonDuCoin(kmJour, jours);
+  } else {
+    signaler(mode === 'destination' ? 'Je situe ta destination…' : 'Je situe le coin à explorer…');
+    cible = await geocoder(d.cible ?? '', depart);
+    if (!cible) throw new Error(`Lieu introuvable : « ${d.cible ?? ''} ».`);
+    rayonCoin = mode === 'destination' ? 10 : rayonDuCoin(kmJour, jours);
+  }
+
   let noeuds = [];
   if (reseaux.length) {
-    signaler('Je charge les nœuds mesh en direct…');
+    signaler('Je charge les nœuds radio mesh…');
     noeuds = await noeudsDe(reseaux);
   }
 
-  let zones = [];
-  if (d.mesh?.couvert && noeuds.length) {
-    signaler('Je repère les zones couvertes par le mesh…');
-    // Les relais comptent le plus ; le secteur du départ n'apporte rien comme suggestion.
-    zones = zonesDenses(depart, rayonGlobal, noeuds, 12)
-      .filter((z) => z.relais > 0 && distanceKm(depart, z) > 15)
-      .slice(0, 6);
-    await parLots(zones, 3, async (z) => {
-      z.nom = await nomDuLieu(z);
-    });
-    zones = zones.filter((z) => z.nom);
-  }
+  signaler('Je trace la route…');
+  const loin = distanceKm(depart, cible) > 2;
+  const squelette = loin ? await tracer([depart, cible], transport) : null;
+  const route = preparerRoute(loin ? squelette.coords : [[depart.lon, depart.lat]]);
+  const aParcourir = boucle ? route.longueur * 2 + rayonCoin * 3 : route.longueur + rayonCoin;
+  if (aParcourir > kmJour * Math.max(1, jours) * 1.3)
+    avertissements.push(
+      `C'est loin pour ${nbJours} jour${nbJours > 1 ? 's' : ''} (${Math.round(aParcourir)} km environ) : attends-toi à de longues journées de route.`,
+    );
+
+  signaler('Je cherche les coins sympas le long de la route…');
+  const pasKm = Math.max({ pied: 4, velo: 8 }[transport] ?? 12, route.longueur / 40);
+  const points = [...(loin ? echantillonner(route, pasKm) : []), ...grilleCoin(cible, rayonCoin)];
+  const enviesLieux = envies.length ? envies : ENVIES_PAR_DEFAUT;
+  const pointsHauts = Boolean(d.mesh?.pointsHauts);
+  const trouves = new Map();
+  let ratees = 0;
+  for (const lot of await parLots(points, 4, (p) =>
+    lieuxAutour(p, { envies: enviesLieux, pointsHauts }).catch(() => {
+      ratees++;
+      return [];
+    }),
+  ))
+    for (const l of lot) trouves.set(l.id, l);
+  if (ratees)
+    avertissements.push(`${ratees} zone(s) sur ${points.length} n'ont pas pu être fouillées (Wikipédia saturé) : réessaie dans un moment pour un parcours complet.`);
+  const ctx = { route, depart, centre: cible, rayonCoin, largeur, boucle };
+  ajouterLabels(trouves, (e) => cleOrdre(e, ctx));
 
   const rejetes = new Set((profil.lieuxRejetes ?? []).map((n) => n.toLowerCase()));
-  const sures = etapesAPortee(depart, Math.max(rayonGlobal, 40), { noeuds, rejetes });
+  const candidats = [];
+  for (const l of trouves.values()) {
+    if (rejetes.has(l.nom.toLowerCase()) || distanceKm(depart, l) < 2) continue;
+    const position = cleOrdre(l, ctx);
+    if (!position) continue;
+    const c = { ...l, ...position, dureeH: DUREE_VISITE[l.categorie] ?? 1 };
+    c.score = scorer(c, { envies, styles, profil, eviter, largeur, noeuds, couvert: d.mesh?.couvert });
+    candidats.push(c);
+  }
+  if (!candidats.length) throw new Error('Aucun lieu intéressant trouvé sur ce parcours. Essaie une autre destination.');
 
   const modele = await nomModele(ia);
-  const contexte = { depart, jours, nbEtapes, kmJour, retour, t, envies, styles, profil, d };
+  const contexte = { depart, cible, mode, boucle, jours, nbJours, kmJour, t, envies, styles, profil, d };
 
-  signaler(`L'IA (${modele}) dessine les grandes étapes…`);
-  const plan = await demanderJson({
-    ia,
-    systeme: SYSTEME,
-    message: messagePlan(contexte, zones, sures),
-    schema: SCHEMA_PLAN,
-  });
-
-  if (process.env.HORIZON_DEBUG) console.log('[voyage] plan', JSON.stringify(plan, null, 1));
-
-  signaler('Je vérifie que chaque étape existe vraiment…');
-  const bases = [];
-  const prises = new Set();
-  let precedente = depart;
-  // Une étape trop loin ou introuvable est remplacée par l'étape sûre la mieux placée.
-  const remplacante = () =>
-    sures
-      .filter((e) => !prises.has(e.id) && distanceKm(precedente, e) <= kmJour)
-      .sort((a, b) => Math.abs(distanceKm(precedente, a) - kmJour * 0.6) - Math.abs(distanceKm(precedente, b) - kmJour * 0.6))[0];
-  const etapesIA = (plan.etapes ?? []).slice(0, nbEtapes);
-  for (let i = 0; i < nbEtapes; i++) {
-    const e = etapesIA[i] ?? { lieu: '', theme: '' };
-    let lieu = sures.find((s) => s.id === e.id && !prises.has(s.id));
-    if (!lieu && e.lieu) {
-      lieu =
-        (await geocoder(`${e.lieu}, ${e.departement}`, precedente).catch(() => null)) ??
-        (await geocoder(e.lieu, precedente).catch(() => null));
-      if (!lieu) avertissements.push(`« ${e.lieu} » introuvable sur la carte : remplacé.`);
-      else if (distanceKm(precedente, lieu) > kmJour * 2) {
-        avertissements.push(`${lieu.nom} était à ${Math.round(distanceKm(precedente, lieu))} km de l'étape d'avant : remplacé.`);
-        lieu = null;
-      }
+  signaler(`L'IA (${modele}) trie les lieux selon tes goûts…`);
+  const top = [...candidats].sort((a, b) => b.score - a.score).slice(0, ia === 'claude' ? 45 : 30);
+  try {
+    const { notes } = await demanderJson({ ia, systeme: SYSTEME, message: messageNotes(contexte, top), schema: SCHEMA_NOTES });
+    const parId = new Map(top.map((c) => [c.id, c]));
+    for (const { id, note } of notes ?? []) {
+      const c = parId.get(id);
+      if (c) c.score += (Math.max(0, Math.min(3, note)) - 1) * 1.2;
     }
-    if (!lieu) {
-      lieu = remplacante();
-      if (!lieu) continue;
-      e.theme = e.theme || lieu.labels?.join(', ');
-    }
-    if (lieu.id) prises.add(lieu.id);
-    bases.push({ ...lieu, theme: e.theme, jour: bases.length + 1 });
-    precedente = lieu;
+  } catch (erreur) {
+    avertissements.push(`Tri par l'IA indisponible (${erreur.message}) : lieux triés par intérêt général.`);
   }
-  if (!bases.length) throw new Error("Aucune étape n'a pu être placée sur la carte. Réessaie.");
-  if (bases.length < nbEtapes)
-    avertissements.push(`Voyage raccourci à ${bases.length} jour(s) : pas assez d'étapes à portée.`);
 
-  signaler('Je cherche de vrais lieux autour de chaque étape (Wikipédia)…');
-  // Le modèle local est lent et se perd dans les longues listes : on lui en donne moins.
-  const parJour = ia === 'claude' ? Math.min(25, Math.max(10, Math.floor(240 / bases.length))) : 12;
-  const enviesLieux = envies.length ? envies : ENVIES_PAR_DEFAUT;
-  await parLots(bases, 3, async (b) => {
-    let trouves = [];
-    try {
-      trouves = await lieuxAutour(b, {
-        envies: enviesLieux,
-        pointsHauts: Boolean(d.mesh?.pointsHauts),
-      });
-    } catch (erreur) {
-      avertissements.push(`Lieux autour de ${b.nom} indisponibles (${erreur.message}).`);
-    }
-    b.hauts = trouves.filter((l) => l.hautPossible && l.ele);
-    b.candidats = varier(
-      trouves.filter(
-        (l) =>
-          l.distanceKm <= Math.max(t.rayonLocal, 4) &&
-          !rejetes.has(l.nom.toLowerCase()) &&
-          l.nom.toLowerCase() !== b.nom.toLowerCase(),
-      ),
-      enviesLieux,
-      profil,
-      parJour,
-    );
+  signaler('Je calcule un itinéraire logique, sans allers-retours…');
+  const parJour = Math.max(1, VISITES_PAR_JOUR[transport] - (d.niveau === 'tranquille' ? 1 : 0));
+  const nbVisites = jours < 1 ? Math.max(2, Math.round(parJour * jours * 1.5)) : nbJours * parJour;
+  const choisis = selectionner(candidats, nbVisites, ESPACEMENT[transport]);
+  const fin = boucle ? depart : mode === 'destination' ? cible : null;
+  const groupes = decouperJours(choisis, nbJours, { depart, fin, vitesse: t.vitesse });
+  if (groupes.length < nbJours)
+    avertissements.push(`Peu de lieux trouvés : voyage ramené à ${groupes.length} jour(s).`);
+
+  const joursFinaux = await parLots(groupes, 3, async (visites, i) => {
+    const dernier = i === groupes.length - 1;
+    const base = dernier
+      ? boucle
+        ? { ...depart, nom: depart.nom, retour: true }
+        : mode === 'destination'
+          ? { nom: cible.nom, lat: cible.lat, lon: cible.lon, departement: cible.departement }
+          : await lieuNuit(visites.at(-1))
+      : await lieuNuit(visites.at(-1));
+    return { jour: i + 1, base, visites };
   });
-
-  signaler(`L'IA (${modele}) choisit les visites et écrit ton carnet…`);
-  const carnet = await demanderJson({
-    ia,
-    systeme: SYSTEME,
-    message: messageCarnet(contexte, plan, bases, reseaux.length > 0),
-    schema: SCHEMA_CARNET,
+  // Lieux de remplacement : non choisis, dans le même tronçon du parcours.
+  joursFinaux.forEach((j, i) => {
+    const debut = i ? groupes[i - 1].at(-1).cle : 0;
+    const finTroncon = i < groupes.length - 1 ? groupes[i + 1][0].cle : 1;
+    j.candidats = candidats
+      .filter((c) => !choisis.includes(c) && c.cle >= debut && c.cle <= finTroncon)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
   });
+  await ajouterImages(joursFinaux.flatMap((j) => [...j.visites, ...j.candidats]));
+  for (const j of joursFinaux) {
+    j.visites = j.visites.map(allege);
+    j.candidats = j.candidats.map(allege);
+  }
 
-  const nbVisites = jours < 1 || transport === 'pied' ? 2 : 3;
-  let position = depart;
-  const joursFinaux = bases.map((b) => {
-    const j = (carnet.jours ?? []).find((x) => x.jour === b.jour) ?? {};
-    const choisis = new Map();
-    for (const v of j.visites ?? []) {
-      const lieu = b.candidats.find((c) => c.id === v.id);
-      if (lieu && !choisis.has(lieu.id)) choisis.set(lieu.id, { ...lieu, pourquoi: v.pourquoi });
-    }
-    // L'IA locale oublie parfois les identifiants : on complète avec les meilleurs candidats.
-    for (const c of b.candidats) {
-      if (choisis.size >= Math.min(nbVisites, b.candidats.length)) break;
-      if (!choisis.has(c.id)) choisis.set(c.id, { ...c, pourquoi: '' });
-    }
-    const visites = plusProcheVoisin(position, [...choisis.values()].slice(0, nbVisites + 1));
-    position = b;
-    return {
-      jour: b.jour,
-      base: {
-        nom: b.nom,
-        lat: b.lat,
-        lon: b.lon,
-        departement: b.departement,
-        theme: b.theme,
-        couverture: noeuds.length ? couverture(b, noeuds) : null,
-      },
-      visites: visites.map((v) => ({ ...v, couverture: noeuds.length ? couverture(v, noeuds) : null })),
-      nuit: j.nuit ?? '',
-      budget: j.budget ?? null,
-      astuce: j.astuce ?? '',
-      pointHaut: d.mesh?.pointsHauts ? pointHaut(b.hauts, d.niveau, noeuds) : null,
-      candidats: b.candidats,
-    };
-  });
+  signaler('Je calcule la route complète…');
+  const trace = await tracerVoyage(depart, joursFinaux, transport, fin);
 
-  signaler('Je calcule le trajet…');
-  const trace = await tracerVoyage(depart, joursFinaux, transport, retour);
+  for (const j of joursFinaux) {
+    j.pointHaut = pointsHauts ? pointHaut(j.visites, trouves, d.niveau, noeuds) : null;
+    if (noeuds.length) {
+      j.base.couverture = couverture(j.base, noeuds);
+      for (const v of j.visites) v.couverture = couverture(v, noeuds);
+    }
+  }
+
+  signaler(`L'IA (${modele}) écrit ton carnet de route…`);
+  let carnet = {};
+  try {
+    carnet = await demanderJson({
+      ia,
+      systeme: SYSTEME,
+      message: messageCarnet(contexte, joursFinaux, reseaux.length > 0),
+      schema: SCHEMA_CARNET,
+    });
+  } catch (erreur) {
+    avertissements.push(`Carnet de l'IA indisponible (${erreur.message}) : l'itinéraire reste valable.`);
+  }
+  for (const j of joursFinaux) {
+    const ecrit = (carnet.jours ?? []).find((x) => x.jour === j.jour) ?? {};
+    const pourquoi = new Map((ecrit.visites ?? []).map((v) => [v.id, v.pourquoi]));
+    j.titre = ecrit.titre ?? '';
+    j.route = ecrit.route ?? '';
+    j.nuit = ecrit.nuit ?? '';
+    j.budget = ecrit.budget ?? null;
+    j.astuce = ecrit.astuce ?? '';
+    for (const v of j.visites) v.pourquoi = pourquoi.get(v.id) ?? '';
+  }
 
   return {
     // Le modèle local recopie parfois « Jour 1 : » en tête du titre du voyage.
-    titre: (carnet.titre || plan.titre || 'Mon voyage').replace(/^jour \d+\s*[:–-]\s*/i, ''),
-    resume: carnet.resume || plan.idee || '',
+    titre: (carnet.titre || `Road trip ${cible === depart ? `autour de ${depart.nom}` : `vers ${cible.nom}`}`).replace(/^jour \d+\s*[:–-]\s*/i, ''),
+    resume: carnet.resume ?? '',
     conseils: carnet.conseils ?? [],
     modele,
     transport,
-    retour,
+    mode,
+    retour: boucle,
     depart,
+    arrivee: fin,
     jours: joursFinaux,
     trace,
-    zones,
     reseaux,
     avertissements,
   };
 }
 
-/** Trace le voyage complet et range la distance de chaque tronçon dans son jour. */
-export async function tracerVoyage(depart, jours, transport, retour) {
+/** Rayon du coin à explorer : plus le séjour est long, plus on rayonne. */
+function rayonDuCoin(kmJour, jours) {
+  return Math.min(35, Math.max(8, kmJour * Math.max(1, jours) * 0.15));
+}
+
+/** « Surprends-moi » : le secteur le plus riche en villages et sites labellisés à bonne distance. */
+function choisirCoin(depart, portee, eviter) {
+  const aBonneDistance = ETAPES.filter((e) => {
+    const d = distanceKm(depart, e);
+    return d >= portee * 0.25 && d <= portee && !eviter.has(e.nom.toLowerCase());
+  });
+  let meilleur = null;
+  let meilleurScore = -Infinity;
+  for (const e of aBonneDistance) {
+    let score = (Math.random() - 0.5) * 3;
+    for (const voisin of ETAPES)
+      if (distanceKm(e, voisin) < 25)
+        score += voisin.labels.reduce((s, l) => s + (POIDS_LABELS[l] ?? 1), 0);
+    if (score > meilleurScore) {
+      meilleurScore = score;
+      meilleur = e;
+    }
+  }
+  return meilleur && { nom: meilleur.nom, lat: meilleur.lat, lon: meilleur.lon, departement: meilleur.departement };
+}
+
+/**
+ * Ajoute les labels (Plus Beaux Villages…) aux lieux trouvés, et tous les sites labellisés
+ * du parcours qui manquent : ceux-là ne doivent jamais être ratés.
+ */
+function ajouterLabels(trouves, surLeParcours) {
+  const parNom = new Map([...trouves.values()].map((l) => [l.nom.toLowerCase(), l]));
+  for (const e of ETAPES) {
+    const existant = parNom.get(e.nom.toLowerCase());
+    if (existant && distanceKm(existant, e) < 5) {
+      existant.labels = e.labels;
+      continue;
+    }
+    if (!surLeParcours(e)) continue;
+    trouves.set(e.id, {
+      id: e.id,
+      categorie: e.labels.includes('Grand Site de France') ? 'nature' : 'villages',
+      nom: e.nom,
+      description: e.labels.join(' · '),
+      lat: e.lat,
+      lon: e.lon,
+      labels: e.labels,
+    });
+  }
+}
+
+function scorer(l, { envies, styles, profil, eviter, largeur, noeuds, couvert }) {
+  // Une commune quelconque compte peu, même si on aime les villages : ce sont les labellisées qui valent le détour.
+  const communeOrdinaire = l.categorie === 'villages' && !l.labels?.length;
+  let s = communeOrdinaire ? 0 : (INTERET[l.categorie] ?? 0);
+  for (const label of l.labels ?? []) s += POIDS_LABELS[label] ?? 1;
+  // Notoriété : nombre de Wikipédias qui en parlent (base locale) ou longueur de l'article.
+  s += l.liens != null ? Math.min(1.2, l.liens / 10) + (l.monumentClasse ? 0.4 : 0) : Math.min(0.8, (l.longueur ?? 0) / 25_000);
+  if (envies.includes(l.categorie)) s += communeOrdinaire ? 0.6 : 2;
+  if (styles.includes('routes') && ['panoramas', 'randonnee'].includes(l.categorie)) s += 0.8;
+  if (profil.aime?.includes(l.categorie)) s += 1;
+  if (profil.evite?.includes(l.categorie)) s -= 2;
+  if (eviter.has(l.nom.toLowerCase())) s -= 3;
+  if (couvert && noeuds.length && couverture(l, noeuds).niveau === 'bonne') s += 0.8;
+  s -= (l.ecart / largeur) * 1.5;
+  // Un peu de hasard : « Autre version » ne redonne pas exactement le même voyage.
+  return s + (Math.random() - 0.5) * 0.6;
+}
+
+/** Où dormir après la dernière visite : un village labellisé tout près, sinon la commune. */
+async function lieuNuit(dernier) {
+  const labellise = ETAPES.filter((e) => distanceKm(e, dernier) < 12).sort(
+    (a, b) => distanceKm(a, dernier) - distanceKm(b, dernier),
+  )[0];
+  if (labellise)
+    return { nom: labellise.nom, lat: labellise.lat, lon: labellise.lon, departement: labellise.departement };
+  const nom = (await nomDuLieu(dernier)) ?? dernier.nom;
+  return { nom: nom.split(',')[0], departement: nom.split(',')[1]?.trim(), lat: dernier.lat, lon: dernier.lon };
+}
+
+const allege = ({ id, categorie, nom, description, lat, lon, image, lien, labels, cle, ecart, ele, pourquoi }) => ({
+  id,
+  categorie,
+  nom,
+  description,
+  lat,
+  lon,
+  image,
+  lien,
+  labels,
+  cle,
+  detourKm: Math.round(ecart * 10) / 10,
+  ele,
+  pourquoi,
+});
+
+/** Le point haut le plus élevé, raisonnable pour le niveau physique, près des visites du jour. */
+function pointHaut(visites, trouves, niveau, noeuds) {
+  const plafond = ALTITUDE_MAX[niveau] ?? ALTITUDE_MAX.moyen;
+  const choix = [...trouves.values()]
+    .filter((h) => h.hautPossible && h.ele && h.ele <= plafond && visites.some((v) => distanceKm(v, h) < 15))
+    .sort((a, b) => b.ele - a.ele)[0];
+  if (!choix) return null;
+  return {
+    id: choix.id,
+    nom: choix.nom,
+    lat: choix.lat,
+    lon: choix.lon,
+    ele: Math.round(choix.ele),
+    noeuds40: noeuds.length ? noeudsDansRayon(choix, noeuds, 40) : null,
+  };
+}
+
+/**
+ * Trace tout le road trip (départ → visites → nuits → arrivée) et range la distance
+ * de chaque tronçon dans son jour.
+ */
+export async function tracerVoyage(depart, jours, transport, fin) {
   const points = [{ ...depart, jour: 1 }];
   jours.forEach((j, i) => {
-    const dernier = i === jours.length - 1;
-    for (const v of j.visites) points.push({ ...v, jour: j.jour });
-    if (!(dernier && retour)) points.push({ ...j.base, jour: j.jour });
+    for (const v of j.visites) points.push({ lat: v.lat, lon: v.lon, jour: j.jour });
+    if (i < jours.length - 1) points.push({ lat: j.base.lat, lon: j.base.lon, jour: j.jour });
   });
-  if (retour) points.push({ ...depart, jour: jours.at(-1)?.jour ?? 1 });
+  if (fin) points.push({ lat: fin.lat, lon: fin.lon, jour: jours.at(-1)?.jour ?? 1 });
   const distincts = points.filter((p, i) => i === 0 || distanceKm(points[i - 1], p) > 0.05);
 
   const trace = await tracer(distincts, transport);
@@ -308,57 +462,9 @@ export async function tracerVoyage(depart, jours, transport, retour) {
   return { coords: trace.coords, distanceKm: trace.distanceKm, dureeH: trace.dureeH, reel: trace.reel };
 }
 
-/** Garde des catégories variées : tour à tour, la meilleure de chaque catégorie. */
-function varier(lieux, envies, profil, max) {
-  const score = (l) => (l.image ? 0.5 : 0) - l.distanceKm / 20;
-  const groupes = new Map();
-  const vus = new Set();
-  for (const l of [...lieux].sort((a, b) => score(b) - score(a))) {
-    const cle = l.nom.toLowerCase();
-    if (vus.has(cle)) continue;
-    vus.add(cle);
-    if (!groupes.has(l.categorie)) groupes.set(l.categorie, []);
-    groupes.get(l.categorie).push(l);
-  }
-  const preference = (c) =>
-    (envies.includes(c) ? 2 : 0) +
-    (profil.aime?.includes(c) ? 1 : 0) -
-    (profil.evite?.includes(c) ? 2 : 0) -
-    (c === 'autre' ? 3 : 0);
-  const ordre = [...groupes.keys()].sort((a, b) => preference(b) - preference(a));
-  const resultat = [];
-  for (let rang = 0; resultat.length < max; rang++) {
-    let ajoute = false;
-    for (const c of ordre) {
-      const l = groupes.get(c)[rang];
-      if (l && resultat.length < max) {
-        resultat.push(l);
-        ajoute = true;
-      }
-    }
-    if (!ajoute) break;
-  }
-  return resultat;
-}
-
-/** Le point haut le plus élevé qui reste raisonnable pour le niveau physique. */
-function pointHaut(hauts, niveau, noeuds) {
-  const plafond = ALTITUDE_MAX[niveau] ?? ALTITUDE_MAX.moyen;
-  const choix = hauts.filter((h) => h.ele && h.ele <= plafond).sort((a, b) => b.ele - a.ele)[0];
-  if (!choix) return null;
-  return {
-    id: choix.id,
-    nom: choix.nom,
-    lat: choix.lat,
-    lon: choix.lon,
-    ele: Math.round(choix.ele),
-    noeuds40: noeuds.length ? noeudsDansRayon(choix, noeuds, 40) : null,
-  };
-}
-
 function profilEnTexte({ d, t, kmJour, envies, styles, profil }) {
   const lignes = [
-    `Transport : ${t.nom}, au plus ~${kmJour} km par jour.`,
+    `Transport : ${t.nom}, au plus ~${Math.round(kmJour)} km par jour.`,
     d.quand && `Quand : ${d.quand}.`,
     `Budget : ${LIBELLES.budget[d.budget] ?? LIBELLES.budget.moyen}.`,
     `Niveau physique : ${LIBELLES.niveau[d.niveau] ?? LIBELLES.niveau.moyen}.`,
@@ -366,76 +472,55 @@ function profilEnTexte({ d, t, kmJour, envies, styles, profil }) {
     `Hébergement : ${LIBELLES.hebergement[d.hebergement] ?? 'peu importe'}.`,
     `Envies : ${[...envies.map((e) => ENVIES[e].nom), ...styles.map((s) => STYLES[s])].join(', ') || 'surprends-moi'}.`,
     d.texte?.trim() && `Ce que la personne écrit : « ${d.texte.trim().slice(0, 600)} »`,
-    profil.aime?.length &&
-      `Goûts appris : aime ${profil.aime.map((c) => ENVIES[c]?.nom ?? c).join(', ')}.`,
-    profil.evite?.length &&
-      `Goûts appris : aime moins ${profil.evite.map((c) => ENVIES[c]?.nom ?? c).join(', ')}.`,
-    profil.lieuxRejetes?.length &&
-      `Lieux déjà refusés, à ne pas reproposer : ${profil.lieuxRejetes.slice(-20).join(', ')}.`,
-    d.eviter?.length && `Propose un voyage différent du précédent, avec d'autres étapes que : ${d.eviter.slice(0, 14).join(', ')}.`,
+    profil.aime?.length && `Goûts appris : aime ${profil.aime.map((c) => ENVIES[c]?.nom ?? c).join(', ')}.`,
+    profil.evite?.length && `Goûts appris : aime moins ${profil.evite.map((c) => ENVIES[c]?.nom ?? c).join(', ')}.`,
   ];
   return lignes.filter(Boolean).join('\n');
 }
 
-function messagePlan(c, zones, sures) {
-  const duree =
-    c.nbEtapes === 1
-      ? `Durée : ${c.jours < 1 ? 'une demi-journée' : 'une journée'}, donc exactement 1 étape : le coin à explorer, à moins de ${c.kmJour} km du départ.`
-      : `Durée : ${c.nbEtapes} jours, donc exactement ${c.nbEtapes} étapes (une par jour : là où l'on dort${c.retour ? ', sauf le dernier jour où l\'on rentre' : ''}).`;
-  const mesh = zones.length
-    ? `\nSecteurs où la radio mesh (MeshCore / Meshtastic) a des relais. C'est un bonus : préfère une étape dans ou près de ces secteurs seulement si elle colle aussi aux envies :\n${zones
-        .map((z) => `- ${z.nom} : ${z.noeuds} nœuds dont ${z.relais} relais`)
-        .join('\n')}\n`
-    : '';
-  const liste = sures.length
-    ? `\nÉtapes vérifiées à portée (villages et sites labellisés). Choisis-les de préférence et recopie leur id :\n${sures
-        .map(
-          (e) =>
-            `${e.id} | ${e.nom}${e.departement ? ` (${e.departement})` : ''} | ${e.distanceKm} km ${e.direction} du départ | ${e.labels.join(', ')}${e.couverture ? ` | mesh : ${e.couverture}` : ''}`,
-        )
-        .join('\n')}\nTu peux choisir un autre lieu réel que tu connais très bien : laisse alors "id" vide.\n`
-    : '\nLaisse "id" vide pour chaque étape.\n';
-  return `Prépare les grandes étapes d'un voyage.
-
-Départ : ${c.depart.nom}${c.depart.departement ? ` (${c.depart.departement})` : ''}.
-${duree}
-Retour au départ à la fin : ${c.retour ? 'oui' : 'non'}.
-${profilEnTexte(c)}
-${liste}${mesh}
-Règles :
-- Chaque "lieu" est le nom exact d'une vraie commune ou d'un site connu, avec son département dans "departement".
-- Les étapes sont des endroits différents du point de départ.
-- Si la personne veut du calme ou de la nature, préfère les villages et petites villes aux grandes villes.
-- Les étapes s'enchaînent logiquement, sans allers-retours, en respectant la distance par jour.
-- Évite les lieux déjà refusés et adapte-toi aux goûts appris.
-- "theme" : ce qu'on vient y faire, en moins de 10 mots.
-- "titre" : un titre court ; "idee" : l'esprit du voyage en une phrase.`;
+function decrireParcours(c) {
+  if (c.cible === c.depart) return `Boucle autour de ${c.depart.nom}.`;
+  if (c.mode === 'destination')
+    return `De ${c.depart.nom} à ${c.cible.nom}${c.boucle ? ', puis retour par une autre route' : ''}.`;
+  return `De ${c.depart.nom} vers le coin de ${c.cible.nom}${c.boucle ? ', puis retour par une autre route' : ''}.`;
 }
 
-function messageCarnet(c, plan, bases, avecMesh) {
-  const nb = c.jours < 1 || c.d.transport === 'pied' ? 2 : 3;
-  const blocs = bases.map((b) => {
-    const lignes = b.candidats.map(
-      (l) =>
-        `${l.id} | ${ENVIES[l.categorie]?.nom ?? 'À voir'} | ${l.nom} | ${l.distanceKm} km${l.description ? ` | ${l.description}` : ''}${l.ele ? ` | ${l.ele} m` : ''}`,
-    );
-    return `Jour ${b.jour} — étape : ${b.nom}${b.departement ? ` (${b.departement})` : ''} — thème : ${b.theme}\n${lignes.join('\n') || '(aucun lieu trouvé : propose quand même la journée dans "astuce")'}`;
-  });
-  return `Voyage « ${plan.titre} » : ${plan.idee}
-Départ : ${c.depart.nom}. Retour au départ à la fin : ${c.retour ? 'oui' : 'non'}.
+const ligneLieu = (l) =>
+  `${l.id} | ${ENVIES[l.categorie]?.nom ?? 'À voir'} | ${l.nom}${l.description ? ` | ${l.description}` : ''}${
+    l.labels?.length ? ` | ${l.labels.join(', ')}` : ''
+  }`;
+
+function messageNotes(c, lieux) {
+  return `Road trip : ${decrireParcours(c)}
 ${profilEnTexte(c)}
 
-Pour chaque jour, voici de vrais lieux (articles Wikipédia géolocalisés) autour de l'étape.
-Format : id | type | nom | distance de l'étape | infos
+Voici des lieux réels sur le parcours. Format : id | type | nom | description.
+${lieux.map(ligneLieu).join('\n')}
+
+Note chaque lieu de 0 à 3 selon ce qui plaira à CETTE personne :
+3 = à ne pas rater pour elle, 2 = lui plaira, 1 = bof, 0 = pas pour elle.
+Recopie chaque id exactement.`;
+}
+
+function messageCarnet(c, jours, avecMesh) {
+  const heures = (h) => `${Math.floor(h)} h ${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+  const blocs = jours.map((j, i) => {
+    const derniere = i === jours.length - 1;
+    const soir = j.base.retour ? 'retour à la maison' : `${derniere && c.mode === 'destination' ? 'arrivée' : 'nuit'} à ${j.base.nom}`;
+    return `Jour ${j.jour} — ${Math.round(j.distanceKm)} km, ${heures(j.dureeH)} de route — ${soir}\n${j.visites.map(ligneLieu).join('\n')}`;
+  });
+  return `Road trip : ${decrireParcours(c)}
+${profilEnTexte(c)}
+
+L'itinéraire est déjà calculé (ordre logique, sans allers-retours). Voici les visites de chaque jour, dans l'ordre :
 
 ${blocs.join('\n\n')}
 
-Consignes :
-- Pour chaque jour, choisis ${nb} lieux dans SA liste (recopie l'id exact), les mieux adaptés au profil, dans un ordre de visite logique. Varie les types.
-- "pourquoi" : une phrase concrète sur CE lieu précis (appuie-toi sur sa description), qui donne envie à cette personne. Pas d'horaires ni de prix inventés.
-- "nuit" : où et comment dormir ce soir-là, adapté au budget et à l'hébergement souhaité, en une phrase.${c.retour ? ' Le dernier jour : "Retour à la maison".' : ''}
-- "budget" : estimation en euros par personne pour la journée (nombre entier).
-- "astuce" : un conseil pratique pour ce jour (horaires, parking, marché, saison…).
-- "titre" : titre court et accrocheur ; "resume" : 2 à 3 phrases.
-- "conseils" : 3 à 5 conseils pour tout le voyage.${avecMesh ? ' Inclus un conseil sur la radio mesh (MeshCore / Meshtastic) : où ça capte, quoi emporter.' : ''}`;
+Écris le carnet de route :
+- "titre" : titre court et accrocheur du road trip ; "resume" : 2 à 3 phrases.
+- Pour chaque jour : "titre" (l'esprit de la journée, moins de 8 mots) ; "route" (la route du jour en 1 ou 2 phrases : par où passer, le plus beau passage, une pause en chemin) ;
+  "visites" : pour CHAQUE lieu du jour, recopie son id et écris "pourquoi" (une phrase concrète sur ce lieu précis, qui donne envie à cette personne) ;
+  "nuit" : où et comment dormir ce soir-là, adapté au budget et à l'hébergement souhaité (écris "Retour à la maison" si c'est le retour) ;
+  "budget" : estimation en euros par personne pour la journée (nombre entier) ; "astuce" : un conseil pratique pour ce jour.
+- "conseils" : 3 à 5 conseils pour tout le road trip.${avecMesh ? ' Inclus un conseil sur la radio mesh (MeshCore / Meshtastic).' : ''}`;
 }

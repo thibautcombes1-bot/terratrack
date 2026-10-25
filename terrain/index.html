@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#f6f3ea" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="TerraTrack" />
+    <title>TerraTrack</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icone.svg" />
+    <link rel="apple-touch-icon" href="./icone-180.png" />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="carte"></div>
+
+    <header class="haut">
+      <div class="marque">Terra<b>Track</b></div>
+      <div class="pastille" id="etat">…</div>
+    </header>
+
+    <section class="tiroir" id="tiroir">
+      <button class="poignee" id="poignee" aria-label="Agrandir ou réduire"></button>
+      <nav class="onglets" role="tablist">
+        <button data-onglet="preparer" aria-selected="true">Préparer</button>
+        <button data-onglet="parcours" aria-selected="false">Parcours</button>
+        <button data-onglet="route" aria-selected="false">En route</button>
+      </nav>
+
+      <div class="contenu">
+        <!-- Avant de partir -->
+        <form id="preparer" class="panneau" autocomplete="off">
+          <label class="champ">D'où pars-tu ?
+            <div class="recherche">
+              <input name="depart" placeholder="Commune, ex. Mende" />
+              <ul class="propositions" hidden></ul>
+            </div>
+          </label>
+          <div class="ligne" data-groupe="mode" data-unique></div>
+          <label class="champ" id="champ-destination">Où vas-tu ?
+            <div class="recherche">
+              <input name="destination" placeholder="Commune, ex. Florac" />
+              <ul class="propositions" hidden></ul>
+            </div>
+          </label>
+          <div class="titre">Combien de temps ?</div>
+          <div class="ligne" data-groupe="jours" data-unique></div>
+          <div class="deux">
+            <label class="champ">Départ le <input type="date" name="date" /></label>
+            <label class="champ">à <input type="time" name="heure" value="09:30" /></label>
+          </div>
+          <div class="titre">Rythme</div>
+          <div class="ligne" data-groupe="rythme" data-unique></div>
+          <div class="titre">Ce qui te plaît</div>
+          <div class="ligne" data-groupe="envies"></div>
+          <div class="titre">Pour dormir</div>
+          <div class="ligne" data-groupe="nuits"></div>
+          <p class="info" id="deja-vus" hidden></p>
+          <p class="erreur" id="erreur-preparer" hidden></p>
+          <button class="principal" type="submit">Proposer un parcours</button>
+        </form>
+
+        <!-- Le parcours -->
+        <div id="parcours" class="panneau" hidden></div>
+
+        <!-- En route -->
+        <div id="route" class="panneau" hidden>
+          <div class="ligne" id="choix-jour"></div>
+          <div class="position">
+            <button type="button" class="secondaire" id="gps">📍 Ma position</button>
+            <label class="curseur">ou je suis à <b id="avance-texte">0 %</b> du trajet du jour
+              <input type="range" id="avance" min="0" max="100" value="0" />
+            </label>
+            <label class="champ heure">Il est <input type="time" id="maintenant" /></label>
+          </div>
+          <form class="demande" id="form-demande">
+            <input id="demande" placeholder="Demande : un coin à l’ombre pour pique-niquer…" enterkeyhint="search" />
+            <button type="submit" aria-label="Demander">✨</button>
+          </form>
+          <p class="info" id="reponse-ia"></p>
+          <div class="quatre">
+            <button type="button" data-bouton="pause"><span>⏸️</span>Une pause</button>
+            <button type="button" data-bouton="decouvrir"><span>🏛️</span>À découvrir</button>
+            <button type="button" data-bouton="manger"><span>🥖</span>Manger</button>
+            <button type="button" data-bouton="dormir"><span>🏕️</span>Dormir</button>
+          </div>
+          <div id="suggestions"></div>
+        </div>
+      </div>
+      <footer class="limites" id="limites"></footer>
+    </section>
+
+    <dialog id="noter">
+      <form method="dialog">
+        <div class="nom" id="noter-nom"></div>
+        <small class="info" id="noter-preuve"></small>
+        <div class="etoiles" id="noter-etoiles"></div>
+        <div class="ligne" id="noter-mots"></div>
+        <div class="deux">
+          <button class="secondaire" value="annuler">Annuler</button>
+          <button class="principal" value="valider" id="noter-valider" disabled>Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <div class="chargement" id="chargement"><div>Chargement…</div></div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

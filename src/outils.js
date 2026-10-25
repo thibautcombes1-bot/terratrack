@@ -31,7 +31,7 @@ export const nombre = (x) => Number(x ?? 0).toLocaleString('fr-FR');
 export const memoire = {
   lire(cle, defaut) {
     try {
-      const v = localStorage.getItem(`horizon.${cle}`);
+      const v = localStorage.getItem(`terratrack.${cle}`);
       return v == null ? defaut : JSON.parse(v);
     } catch {
       return defaut;
@@ -39,7 +39,7 @@ export const memoire = {
   },
   ecrire(cle, valeur) {
     try {
-      localStorage.setItem(`horizon.${cle}`, JSON.stringify(valeur));
+      localStorage.setItem(`terratrack.${cle}`, JSON.stringify(valeur));
     } catch {}
   },
 };

@@ -51,31 +51,3 @@ export function noeudsDansRayon(point, noeuds, rayonKm) {
       total++;
   return total;
 }
-
-/**
- * Zones les mieux couvertes autour d'un centre : grille d'environ 15 km, un
- * relais compte triple. Renvoie les `n` meilleures cases, centrées sur leurs nœuds.
- */
-export function zonesDenses(centre, rayonKm, noeuds, n = 10) {
-  const cases = new Map();
-  for (const noeud of noeuds) {
-    if (distanceKm(centre, noeud) > rayonKm) continue;
-    const cle = `${Math.round(noeud.lat / 0.15)}:${Math.round(noeud.lon / 0.2)}`;
-    const c = cases.get(cle) ?? { score: 0, noeuds: 0, relais: 0, lat: 0, lon: 0 };
-    c.score += noeud.relais ? 3 : 1;
-    c.noeuds++;
-    if (noeud.relais) c.relais++;
-    c.lat += noeud.lat;
-    c.lon += noeud.lon;
-    cases.set(cle, c);
-  }
-  return [...cases.values()]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, n)
-    .map((c) => ({
-      lat: c.lat / c.noeuds,
-      lon: c.lon / c.noeuds,
-      noeuds: c.noeuds,
-      relais: c.relais,
-    }));
-}

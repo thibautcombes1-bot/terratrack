@@ -3,3 +3,8 @@ dist/
 .cache/
 .env
 .DS_Store
+.brut/
+terrain/public/maplibre-gl-worker.mjs
+ios/DerivedData/
+ios/App/App/public/
+terrain/public/pack/

@@ -1,0 +1,597 @@
+/* Thème clair « papier », lisible au soleil. */
+:root {
+  --papier: #f6f3ea;
+  --carte-fond: #fffdf8;
+  --encre: #1d2a20;
+  --doux: #66705f;
+  --trait: #ddd6c4;
+  --vert: #2f7d4a;
+  --vert-clair: #e3efe4;
+  --alerte: #b5451b;
+  --pause: #2d8fbf;
+  --decouvrir: #b5651d;
+  --manger: #c0392b;
+  --dormir: #3b3f8f;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--papier);
+  color: var(--encre);
+  font: 15px/1.4 -apple-system, system-ui, 'Segoe UI', sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+#carte {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+}
+
+.haut {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 10px);
+  left: 12px;
+  right: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.marque {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--carte-fond);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.marque b {
+  color: var(--vert);
+}
+
+.pastille {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--carte-fond);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  font-size: 12.5px;
+  color: var(--doux);
+}
+
+.pastille.ok {
+  color: var(--vert);
+}
+
+/* ---- Tiroir ---- */
+
+.tiroir {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--papier);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.18);
+  z-index: 4;
+  transition: height 0.25s ease;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tiroir.reduit {
+  height: calc(118px + env(safe-area-inset-bottom));
+}
+
+.tiroir.grand {
+  height: 88vh;
+}
+
+.poignee {
+  align-self: center;
+  width: 48px;
+  height: 18px;
+  border: 0;
+  background: none;
+  position: relative;
+}
+
+.poignee::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 7px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--trait);
+}
+
+.onglets {
+  display: flex;
+  gap: 4px;
+  margin: 0 12px;
+  padding: 3px;
+  border-radius: 12px;
+  background: #ebe6d8;
+}
+
+.onglets button {
+  flex: 1;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--doux);
+  font-weight: 600;
+}
+
+.onglets button[aria-selected='true'] {
+  background: var(--carte-fond);
+  color: var(--encre);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.contenu {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 14px 16px;
+}
+
+.limites {
+  padding: 6px 14px 8px;
+  border-top: 1px solid var(--trait);
+  font-size: 11.5px;
+  color: var(--doux);
+}
+
+/* ---- Formulaire ---- */
+
+.champ {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--doux);
+}
+
+input:not([type='range']) {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--trait);
+  border-radius: 10px;
+  background: var(--carte-fond);
+  font-weight: 400;
+  color: var(--encre);
+  font-size: 16px;
+}
+
+input:focus {
+  outline: 2px solid var(--vert);
+  outline-offset: -1px;
+}
+
+.recherche {
+  position: relative;
+}
+
+.propositions {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--carte-fond);
+  border: 1px solid var(--trait);
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.propositions li {
+  padding: 9px 10px;
+  border-radius: 7px;
+  font-weight: 400;
+  color: var(--encre);
+}
+
+.propositions li:hover,
+.propositions li:active {
+  background: var(--vert-clair);
+}
+
+.titre {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--doux);
+}
+
+.ligne {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.puce {
+  padding: 8px 12px;
+  border: 1px solid var(--trait);
+  border-radius: 999px;
+  background: var(--carte-fond);
+  font-size: 14px;
+}
+
+.puce[aria-pressed='true'] {
+  border-color: var(--vert);
+  background: var(--vert-clair);
+  color: var(--vert);
+  font-weight: 600;
+}
+
+.deux {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.principal {
+  width: 100%;
+  margin-top: 12px;
+  padding: 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--vert);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.secondaire {
+  padding: 9px 12px;
+  border: 1px solid var(--trait);
+  border-radius: 10px;
+  background: var(--carte-fond);
+  font-size: 14px;
+}
+
+.erreur {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #fbe9e2;
+  color: var(--alerte);
+}
+
+/* ---- Parcours ---- */
+
+.totaux {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.totaux div {
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--carte-fond);
+  border: 1px solid var(--trait);
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--doux);
+}
+
+.totaux b {
+  display: block;
+  font-size: 15px;
+  color: var(--encre);
+}
+
+.jour {
+  margin-bottom: 12px;
+  border: 1px solid var(--trait);
+  border-radius: 14px;
+  background: var(--carte-fond);
+  overflow: hidden;
+}
+
+.jour-tete {
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: var(--vert-clair);
+  text-align: left;
+}
+
+.jour-tete strong {
+  display: block;
+  text-transform: capitalize;
+}
+
+.jour-tete small {
+  color: var(--doux);
+}
+
+.etape {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--trait);
+}
+
+.etape .h {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.etape .nom {
+  font-weight: 600;
+}
+
+.etape small,
+.info {
+  display: block;
+  color: var(--doux);
+  font-size: 12.5px;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.actions button {
+  padding: 5px 9px;
+  border: 1px solid var(--trait);
+  border-radius: 8px;
+  background: var(--papier);
+  font-size: 12.5px;
+}
+
+.nuit {
+  background: #eceefa;
+}
+
+.alerte {
+  margin: 0;
+  padding: 7px 12px;
+  border-top: 1px solid var(--trait);
+  background: #fbe9e2;
+  color: var(--alerte);
+  font-size: 13px;
+}
+
+.marge-ok {
+  color: var(--vert);
+}
+
+/* ---- En route ---- */
+
+.position {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.curseur {
+  font-size: 13px;
+  color: var(--doux);
+}
+
+.curseur input {
+  width: 100%;
+  accent-color: var(--vert);
+}
+
+.heure {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.quatre {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.quatre button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px;
+  border: 0;
+  border-radius: 14px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15.5px;
+}
+
+.quatre span {
+  font-size: 20px;
+}
+
+[data-bouton='pause'] {
+  background: var(--pause);
+}
+
+[data-bouton='decouvrir'] {
+  background: var(--decouvrir);
+}
+
+[data-bouton='manger'] {
+  background: var(--manger);
+}
+
+[data-bouton='dormir'] {
+  background: var(--dormir);
+}
+
+.suggestion {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--trait);
+  border-radius: 12px;
+  background: var(--carte-fond);
+}
+
+.rang {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.effet {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.chargement {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--papier);
+  z-index: 10;
+  color: var(--doux);
+}
+
+/* Grand écran : panneau à gauche plutôt que tiroir. */
+@media (min-width: 900px) {
+  .tiroir,
+  .tiroir.reduit,
+  .tiroir.grand {
+    top: 12px;
+    left: 12px;
+    bottom: 12px;
+    right: auto;
+    width: 420px;
+    height: auto;
+    border-radius: 16px;
+  }
+
+  .poignee {
+    display: none;
+  }
+
+  .haut {
+    left: 444px;
+  }
+}
+
+/* Sous la barre d’état de l’iPhone. */
+.maplibregl-ctrl-top-right {
+  top: max(env(safe-area-inset-top), 50px);
+}
+
+/* Demande en langage naturel (couche IA). */
+.demande {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.demande button {
+  flex: none;
+  width: 48px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--vert);
+  color: #fff;
+  font-size: 20px;
+}
+
+/* Notation vérifiée par GPS. */
+dialog#noter {
+  width: min(92vw, 380px);
+  border: 0;
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--carte-fond);
+  color: var(--encre);
+}
+
+dialog#noter::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.etoiles {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.etoiles button {
+  border: 0;
+  background: none;
+  font-size: 34px;
+  color: #d8cfb8;
+}
+
+.etoiles button.allumee {
+  color: #e8a33d;
+}
+
+.note {
+  color: #b5651d;
+  font-size: 12.5px;
+}
+
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  top: calc(env(safe-area-inset-top) + 56px);
+  z-index: 8;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--vert);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}

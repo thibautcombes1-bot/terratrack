@@ -1,4 +1,4 @@
-// Horizon : assemble le globe, les nœuds mesh, le formulaire et le carnet.
+// TerraTrack : assemble le globe, les nœuds mesh, le formulaire et le carnet.
 import { creerCarnet } from './carnet.js';
 import { creerFormulaire } from './formulaire.js';
 import * as Cesium from 'cesium';
@@ -8,13 +8,13 @@ import { creerCoucheNoeuds, ficheNoeud } from './noeuds.js';
 import { h, memoire } from './outils.js';
 
 const viewer = creerGlobe('globe');
-if (import.meta.env.DEV) window.horizon = { viewer, Cesium };
+if (import.meta.env.DEV) window.terratrack = { viewer, Cesium };
 const couche = creerCoucheNoeuds(viewer);
 const carnet = creerCarnet(viewer, couche);
 const etat = await fetch('/api/etat')
   .then((r) => r.json())
   .catch(() => null);
-const formulaire = creerFormulaire(etat);
+const formulaire = creerFormulaire(etat, { surTermine: generer });
 
 const vues = {
   formulaire: document.getElementById('vue-formulaire'),
@@ -83,30 +83,29 @@ function afficherErreur(texte) {
   document.getElementById('annuler').textContent = '← Revenir au formulaire';
 }
 
-vues.formulaire.addEventListener('submit', (ev) => {
-  ev.preventDefault();
-  generer(formulaire.demande());
-});
-
 document.getElementById('annuler').addEventListener('click', (ev) => {
   enCours?.abort();
   ev.target.textContent = 'Annuler';
   montrer(carnet.voyage ? 'carnet' : 'formulaire');
 });
 
-document.getElementById('modifier').addEventListener('click', () => montrer('formulaire'));
+document.getElementById('modifier').addEventListener('click', () => {
+  formulaire.revenir(1);
+  montrer('formulaire');
+});
 
 document.getElementById('autre').addEventListener('click', () => {
   const precedent = carnet.voyage;
+  if (!derniereDemande) return montrer('formulaire');
   generer({
-    ...(derniereDemande ?? formulaire.demande()),
-    eviter: precedent?.jours.map((j) => j.base.nom) ?? [],
+    ...derniereDemande,
+    eviter: precedent?.jours.flatMap((j) => j.visites.map((v) => v.nom)) ?? [],
   });
 });
 
 document.getElementById('gpx').addEventListener('click', () => {
   const nom = telechargerGpx(carnet.voyage);
-  alert(`${nom} téléchargé.\n\nPour le T-Deck : copie-le sur la carte SD dans /rr/voyages/.\nSur iPhone : ouvre-le avec OsmAnd ou Organic Maps.`);
+  alert(`${nom} téléchargé.\n\nOuvre-le avec OsmAnd ou Organic Maps (iPhone), ou copie-le sur la carte SD du T-Deck dans /rr/voyages/.`);
 });
 
 // ---------- Clics sur le globe ----------
@@ -137,7 +136,7 @@ document.getElementById('entete').addEventListener('click', () => {
 
 // ---------- Au démarrage : reprendre le dernier voyage ----------
 
-const dernier = memoire.lire('voyage', null);
+const dernier = memoire.lire('roadtrip', null);
 if (dernier?.jours?.length) {
   carnet.afficher(dernier, { cadrer: false });
   montrer('carnet');

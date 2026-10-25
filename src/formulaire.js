@@ -1,11 +1,24 @@
-// Le formulaire « Où allons-nous ? » : puces, possibilités, mesh, IA, brouillon mémorisé.
+// Les questions du road trip, une par une : départ, où aller, durée, transport, envies,
+// derniers détails (et option radio mesh). Le brouillon est mémorisé.
 import { profil, oublier } from './gouts.js';
 import { h, memoire } from './outils.js';
 
+const MODES = {
+  destination: '🎯 Une destination précise',
+  coin: '🗺️ Un coin à explorer (région, site…)',
+  surprise: '🎲 Surprends-moi',
+};
+const CIBLES = {
+  destination: { titre: 'Destination', exemple: 'ex. Gordes, Biarritz, Annecy', retour: false },
+  coin: { titre: 'Le coin à explorer', exemple: 'ex. Gorges du Tarn, Luberon, Vercors', retour: true },
+  surprise: { retour: true },
+};
+// Durées reprises de Roadtrip AI (« 3 heures », « Week-end »…).
 const DUREES = [
+  [0.25, 'Quelques heures'],
   [0.5, '½ journée'],
   [1, '1 jour'],
-  [2, '2 jours'],
+  [2, 'Week-end'],
   [3, '3 jours'],
   [5, '5 jours'],
   [7, '1 semaine'],
@@ -14,41 +27,50 @@ const DUREES = [
 const TRANSPORTS = {
   voiture: '🚗 Voiture',
   moto: '🏍️ Moto',
-  van: '🚐 Van',
+  van: '🚐 Van, camping-car',
   velo: '🚲 Vélo',
   pied: '🥾 À pied',
   train: '🚆 Train',
 };
 const ENVIES = {
-  nature: '🌿 Nature',
-  randonnee: '🥾 Randonnée',
-  panoramas: '🔭 Panoramas',
+  routes: '🛣️ Routes panoramiques',
   villages: '🏘️ Villages',
+  nature: '🌿 Nature',
+  panoramas: '🔭 Panoramas',
   patrimoine: '🏰 Patrimoine',
-  musees: '🖼️ Musées',
   gastronomie: '🍷 Gastronomie & vin',
   baignade: '🏊 Baignade',
-  aventure: '🧗 Aventure',
+  randonnee: '🥾 Randonnée',
   insolite: '✨ Insolite',
+  aventure: '🧗 Aventure',
+  musees: '🖼️ Musées',
   astronomie: '🌌 Astronomie',
   calme: '🍃 Calme',
   photo: '📷 Photo',
-  routes: '🛣️ Routes panoramiques',
   local: '🧺 Produits locaux',
   soiree: '🎶 Soirées',
 };
 
-export function creerFormulaire(etat) {
+/** @param {{ surTermine: (demande: object) => void }} rappels */
+export function creerFormulaire(etat, { surTermine }) {
   const form = document.getElementById('vue-formulaire');
-  const brouillon = memoire.lire('formulaire', {
+  const e = form.elements;
+  const questions = [...form.querySelectorAll('.question')];
+  const boutonSuivant = document.getElementById('suivant');
+  const boutonPrecedent = document.getElementById('precedent');
+  const erreur = document.getElementById('erreur-question');
+  const brouillon = memoire.lire('brouillon', {
+    mode: 'surprise',
     jours: 2,
     transport: 'voiture',
-    envies: ['nature', 'villages', 'patrimoine'],
+    envies: ['routes', 'villages', 'nature'],
   });
   let position = brouillon.position ?? null;
+  let etape = 0;
 
-  // Puces
+  // ---------- Puces ----------
   const groupes = {
+    mode: { options: Object.entries(MODES), unique: true },
     jours: { options: DUREES, unique: true },
     transport: { options: Object.entries(TRANSPORTS), unique: true },
     envies: { options: Object.entries(ENVIES), unique: false },
@@ -63,6 +85,7 @@ export function creerFormulaire(etat) {
       if (!puce) return;
       if (g.unique) for (const p of conteneur.children) p.setAttribute('aria-pressed', String(p === puce));
       else puce.setAttribute('aria-pressed', String(puce.getAttribute('aria-pressed') !== 'true'));
+      if (nom === 'mode') majMode(true);
       sauver();
     });
   }
@@ -73,8 +96,20 @@ export function creerFormulaire(etat) {
       p.setAttribute('aria-pressed', String(valeurs.map(String).includes(p.dataset.valeur)));
   };
 
-  // IA disponibles
-  const choixIA = form.elements.ia;
+  /** Affiche le champ destination / coin selon le choix, et règle le retour par défaut. */
+  function majMode(changement) {
+    const mode = selection('mode')[0] ?? 'surprise';
+    const cible = CIBLES[mode];
+    document.getElementById('champ-cible').hidden = mode === 'surprise';
+    if (cible.titre) {
+      document.getElementById('titre-cible').textContent = cible.titre;
+      e.cible.placeholder = cible.exemple;
+    }
+    if (changement) e.retour.checked = cible.retour;
+  }
+
+  // ---------- IA disponibles ----------
+  const choixIA = e.ia;
   if (etat?.ia) {
     choixIA.options[0].textContent = etat.ia.ollama.ok
       ? `IA locale — ${etat.ia.ollama.modele}`
@@ -85,25 +120,25 @@ export function creerFormulaire(etat) {
     choixIA.options[1].disabled = !etat.ia.claude.ok;
   }
 
-  // Ma position
+  // ---------- Ma position ----------
   document.getElementById('ma-position').addEventListener('click', () => {
-    if (!navigator.geolocation) return alert("Ce navigateur ne donne pas la position.");
+    if (!navigator.geolocation) return alert('Ce navigateur ne donne pas la position.');
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
         position = { lat: coords.latitude, lon: coords.longitude };
-        form.elements.depart.value = 'Ma position';
+        e.depart.value = 'Ma position';
         try {
           const { nom } = await fetch(`/api/position?lat=${position.lat}&lon=${position.lon}`).then((r) => r.json());
-          if (nom) form.elements.depart.value = nom;
+          if (nom) e.depart.value = nom;
         } catch {}
         sauver();
       },
-      () => alert("Position refusée ou indisponible (sur iPhone, il faut une connexion sécurisée)."),
+      () => alert('Position refusée ou indisponible (sur iPhone, il faut une connexion sécurisée).'),
     );
   });
-  form.elements.depart.addEventListener('input', () => (position = null));
+  e.depart.addEventListener('input', () => (position = null));
 
-  // Goûts appris
+  // ---------- Goûts appris ----------
   const gouts = document.getElementById('gouts');
   function majGouts() {
     const p = profil();
@@ -123,11 +158,52 @@ export function creerFormulaire(etat) {
     }
   });
 
+  // ---------- Questions une par une ----------
+  function montrer(i) {
+    etape = Math.max(0, Math.min(questions.length - 1, i));
+    questions.forEach((q, n) => (q.hidden = n !== etape));
+    document.getElementById('avancement').innerHTML = questions
+      .map((_, n) => `<span class="${n <= etape ? 'fait' : ''}"></span>`)
+      .join('');
+    boutonPrecedent.disabled = etape === 0;
+    boutonSuivant.textContent = etape === questions.length - 1 ? 'Composer mon road trip ✦' : 'Suivant →';
+    erreur.hidden = true;
+    questions[etape].querySelector('input[type="text"]:not([hidden])')?.focus({ preventScroll: true });
+  }
+
+  /** Message d'erreur si la question en cours n'a pas de réponse valable. */
+  function manque() {
+    if (etape === 0 && !e.depart.value.trim()) return "Dis-moi d'où tu pars.";
+    if (etape === 1) {
+      const mode = selection('mode')[0];
+      if (!mode) return 'Choisis une option.';
+      if (mode !== 'surprise' && !e.cible.value.trim())
+        return mode === 'destination' ? 'Où veux-tu arriver ?' : 'Quel coin veux-tu explorer ?';
+    }
+    return null;
+  }
+
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const probleme = manque();
+    if (probleme) {
+      erreur.textContent = probleme;
+      erreur.hidden = false;
+      return;
+    }
+    if (etape < questions.length - 1) montrer(etape + 1);
+    else surTermine({ ...lire(), profil: profil() });
+  });
+  boutonPrecedent.addEventListener('click', () => montrer(etape - 1));
+
+  // ---------- Lecture et brouillon ----------
   function lire() {
-    const e = form.elements;
     return {
       depart: { texte: e.depart.value.trim(), ...(position ?? {}) },
       position,
+      mode: selection('mode')[0] ?? 'surprise',
+      cible: e.cible.value.trim(),
+      retour: e.retour.checked,
       jours: Number(selection('jours')[0] ?? 1),
       transport: selection('transport')[0] ?? 'voiture',
       envies: selection('envies'),
@@ -137,7 +213,6 @@ export function creerFormulaire(etat) {
       compagnie: e.compagnie.value,
       hebergement: e.hebergement.value,
       quand: e.quand.value.trim(),
-      retour: e.retour.checked,
       mesh: {
         reseaux: ['meshcore', 'meshtastic'].filter((r) => e[r].checked),
         couvert: e.couvert.checked,
@@ -148,16 +223,14 @@ export function creerFormulaire(etat) {
   }
 
   function sauver() {
-    memoire.ecrire('formulaire', lire());
+    memoire.ecrire('brouillon', lire());
   }
 
-  // Restauration du brouillon
-  const e = form.elements;
   e.depart.value = brouillon.depart?.texte ?? '';
+  e.cible.value = brouillon.cible ?? '';
   e.texte.value = brouillon.texte ?? '';
   for (const champ of ['budget', 'niveau', 'compagnie', 'hebergement', 'quand'])
     if (brouillon[champ] != null) e[champ].value = brouillon[champ];
-  if (brouillon.retour != null) e.retour.checked = brouillon.retour;
   if (brouillon.mesh) {
     e.meshcore.checked = brouillon.mesh.reseaux.includes('meshcore');
     e.meshtastic.checked = brouillon.mesh.reseaux.includes('meshtastic');
@@ -165,15 +238,20 @@ export function creerFormulaire(etat) {
     e.pointsHauts.checked = brouillon.mesh.pointsHauts;
   }
   if (brouillon.ia && !choixIA.querySelector(`[value="${brouillon.ia}"]`)?.disabled) e.ia.value = brouillon.ia;
+  choisir('mode', [brouillon.mode]);
   choisir('jours', [brouillon.jours]);
   choisir('transport', [brouillon.transport]);
   choisir('envies', brouillon.envies ?? []);
+  majMode(brouillon.retour == null);
+  if (brouillon.retour != null) e.retour.checked = brouillon.retour;
   form.addEventListener('change', sauver);
+  form.addEventListener('input', sauver);
   majGouts();
+  montrer(0);
 
   return {
-    /** La demande complète envoyée au serveur. */
-    demande: () => ({ ...lire(), profil: profil() }),
     majGouts,
+    /** Revient à une question (0 = départ). */
+    revenir: (i = 0) => montrer(i),
   };
 }

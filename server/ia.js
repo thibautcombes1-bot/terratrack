@@ -68,7 +68,7 @@ async function demanderOllama(systeme, message, schema) {
   try {
     return JSON.parse(contenu);
   } catch {
-    if (process.env.HORIZON_DEBUG) console.log('[ia] réponse illisible', contenu.slice(0, 2000));
+    if (process.env.TERRATRACK_DEBUG) console.log('[ia] réponse illisible', contenu.slice(0, 2000));
     throw new Error("L'IA locale a rendu une réponse incomplète. Réessaie, ou choisis Claude.");
   }
 }

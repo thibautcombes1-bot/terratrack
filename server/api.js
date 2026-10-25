@@ -42,8 +42,8 @@ const routes = {
 
   // Recalcule le tracé après le remplacement d'une visite.
   'POST /api/trace': async (_url, corps) => {
-    const { depart, jours, transport, retour } = corps;
-    const trace = await tracerVoyage(depart, jours, transport, retour);
+    const { depart, jours, transport, fin } = corps;
+    const trace = await tracerVoyage(depart, jours, transport, fin);
     return { trace, jours: jours.map((j) => ({ distanceKm: j.distanceKm, dureeH: j.dureeH })) };
   },
 };
@@ -82,7 +82,7 @@ async function voyage(req, res) {
 }
 
 async function gerer(req, res, suite) {
-  const url = new URL(req.url, 'http://horizon.local');
+  const url = new URL(req.url, 'http://terratrack.local');
   if (!url.pathname.startsWith('/api/')) return suite();
   try {
     if (req.method === 'POST' && url.pathname === '/api/voyage') return await voyage(req, res);
@@ -97,9 +97,9 @@ async function gerer(req, res, suite) {
 }
 
 /** Greffon Vite : branche l'API sur le serveur de développement et d'aperçu. */
-export function apiHorizon() {
+export function apiTerraTrack() {
   return {
-    name: 'horizon-api',
+    name: 'terratrack-api',
     configureServer(serveur) {
       serveur.middlewares.use(gerer);
     },

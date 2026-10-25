@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#06090d" />
-    <meta name="description" content="Voyages générés par IA selon tes goûts, avec les réseaux mesh MeshCore et Meshtastic en direct." />
-    <title>Horizon</title>
+    <meta name="description" content="Road trips composés par IA selon tes goûts, tes envies et tes possibilités, avec de vrais lieux." />
+    <title>TerraTrack</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2306090d' stroke='%23f0a63c' stroke-width='2'/%3E%3Cpath d='M4 18h24' stroke='%23f0a63c' stroke-width='2'/%3E%3Ccircle cx='16' cy='18' r='5' fill='%23f0a63c'/%3E%3C/svg%3E"
@@ -19,35 +19,54 @@
 
     <aside class="panneau" id="panneau">
       <header class="entete" id="entete">
-        <div class="marque"><span>◐</span> HORIZON</div>
-        <small>voyages · mesh</small>
+        <div class="marque"><span>◐</span> TERRATRACK</div>
+        <small>road trips · IA</small>
       </header>
 
-      <!-- Formulaire -->
-      <form id="vue-formulaire" class="vue" autocomplete="off">
+      <!-- Questions, une par une -->
+      <form id="vue-formulaire" class="vue" autocomplete="off" novalidate>
         <div class="defile">
-          <h2>Où allons-nous ?</h2>
-          <p class="aide">Dis-moi d'où tu pars et ce qui te fait envie : je compose un voyage avec de vrais lieux, en gardant un œil sur la couverture radio mesh.</p>
+          <div class="avancement" id="avancement"></div>
 
-          <h3>Départ</h3>
-          <div class="champ">
-            <input type="text" name="depart" id="depart" placeholder="Ville ou adresse, ex. Montpellier" required />
-            <button type="button" class="bouton-icone" id="ma-position" title="Utiliser ma position">📍</button>
-          </div>
+          <section class="question">
+            <h2>D'où pars-tu ?</h2>
+            <p class="aide">Je compose ton road trip étape par étape : de vrais lieux, dans un ordre logique, sans allers-retours.</p>
+            <div class="champ">
+              <input type="text" name="depart" id="depart" placeholder="Ville ou adresse, ex. Montpellier" />
+              <button type="button" class="bouton-icone" id="ma-position" title="Utiliser ma position">📍</button>
+            </div>
+          </section>
 
-          <h3>Durée</h3>
-          <div class="puces" data-groupe="jours" data-unique></div>
+          <section class="question" hidden>
+            <h2>Où veux-tu aller ?</h2>
+            <div class="puces choix-mode" data-groupe="mode" data-unique></div>
+            <div id="champ-cible" hidden>
+              <h3 id="titre-cible">Destination</h3>
+              <input type="text" name="cible" placeholder="" />
+            </div>
+            <label class="case"><input type="checkbox" name="retour" /> <span id="texte-retour">Revenir au départ par une autre route</span></label>
+          </section>
 
-          <h3>Transport</h3>
-          <div class="puces" data-groupe="transport" data-unique></div>
+          <section class="question" hidden>
+            <h2>Combien de temps as-tu ?</h2>
+            <div class="puces" data-groupe="jours" data-unique></div>
+          </section>
 
-          <h3>Envies</h3>
-          <div class="puces" data-groupe="envies"></div>
-          <div style="height: 8px"></div>
-          <textarea name="texte" placeholder="Dis-m'en plus : « on adore les vieilles pierres, les petits vins et se baigner en rivière »"></textarea>
+          <section class="question" hidden>
+            <h2>Comment voyages-tu ?</h2>
+            <div class="puces" data-groupe="transport" data-unique></div>
+          </section>
 
-          <details id="possibilites">
-            <summary>Possibilités</summary>
+          <section class="question" hidden>
+            <h2>Qu'est-ce qui te fait envie ?</h2>
+            <div class="puces" data-groupe="envies"></div>
+            <div style="height: 10px"></div>
+            <textarea name="texte" placeholder="Dis-m'en plus : « on adore les vieilles pierres, les petits vins et se baigner en rivière »"></textarea>
+            <div class="gouts" id="gouts" hidden></div>
+          </section>
+
+          <section class="question" hidden>
+            <h2>Derniers détails</h2>
             <div class="grille">
               <label>Budget
                 <select name="budget">
@@ -84,34 +103,37 @@
               <label style="grid-column: 1 / -1">Quand
                 <input type="text" name="quand" placeholder="ex. fin octobre" />
               </label>
+              <label style="grid-column: 1 / -1">IA
+                <select name="ia" id="choix-ia">
+                  <option value="ollama">IA locale (Ollama)</option>
+                  <option value="claude">Claude (en ligne)</option>
+                </select>
+              </label>
             </div>
-            <label class="case"><input type="checkbox" name="retour" checked /> Revenir au point de départ</label>
-          </details>
 
-          <h3>Radio mesh</h3>
-          <label class="case"><input type="checkbox" name="meshcore" checked /> MeshCore</label>
-          <label class="case"><input type="checkbox" name="meshtastic" checked /> Meshtastic</label>
-          <label class="case"><input type="checkbox" name="couvert" checked /> Rester dans les zones couvertes</label>
-          <label class="case"><input type="checkbox" name="pointsHauts" checked /> Proposer des points hauts radio</label>
+            <details id="option-mesh">
+              <summary>Option radio mesh</summary>
+              <p class="aide">Si tu voyages avec une radio MeshCore ou Meshtastic, pour garder le contact sans réseau mobile.</p>
+              <label class="case"><input type="checkbox" name="meshcore" /> MeshCore</label>
+              <label class="case"><input type="checkbox" name="meshtastic" /> Meshtastic</label>
+              <label class="case"><input type="checkbox" name="couvert" /> Préférer les lieux couverts</label>
+              <label class="case"><input type="checkbox" name="pointsHauts" /> Proposer des points hauts radio</label>
+            </details>
+          </section>
 
-          <h3>IA</h3>
-          <select name="ia" id="choix-ia">
-            <option value="ollama">IA locale (Ollama)</option>
-            <option value="claude">Claude (en ligne)</option>
-          </select>
-
-          <div class="gouts" id="gouts" hidden></div>
+          <p class="erreur" id="erreur-question" hidden></p>
         </div>
-        <div class="pied">
-          <button class="principal" type="submit">Composer mon voyage ✦</button>
+        <div class="pied navigation">
+          <button class="secondaire" type="button" id="precedent">←</button>
+          <button class="principal" type="submit" id="suivant">Suivant →</button>
         </div>
       </form>
 
       <!-- Génération en cours -->
       <section id="vue-progression" class="vue" hidden>
         <div class="defile">
-          <h2>Je prépare ton voyage…</h2>
-          <p class="aide">Avec l'IA locale, compte une à deux minutes.</p>
+          <h2>Je prépare ton road trip…</h2>
+          <p class="aide">Avec l'IA locale, compte deux minutes environ : je fouille tout le parcours avant de choisir.</p>
           <ol class="etapes-progression" id="progression"></ol>
           <div class="erreur" id="erreur" hidden></div>
         </div>

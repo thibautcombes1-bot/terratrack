@@ -13,22 +13,6 @@ export function distanceKm(a, b) {
   return 2 * RAYON_TERRE_KM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Ordonne des points au plus proche voisin, en partant de `depart`. */
-export function plusProcheVoisin(depart, points) {
-  const reste = [...points];
-  const ordre = [];
-  let courant = depart;
-  while (reste.length) {
-    let meilleur = 0;
-    for (let i = 1; i < reste.length; i++)
-      if (distanceKm(courant, reste[i]) < distanceKm(courant, reste[meilleur]))
-        meilleur = i;
-    courant = reste.splice(meilleur, 1)[0];
-    ordre.push(courant);
-  }
-  return ordre;
-}
-
 /** Exécute `travail` sur chaque élément, `n` à la fois au plus. */
 export async function parLots(elements, n, travail) {
   const resultats = new Array(elements.length);

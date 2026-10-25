@@ -1,4 +1,4 @@
-// Le carnet de voyage : panneau jour par jour + étapes, visites, points hauts et tracé sur le globe.
+// Le carnet de route : panneau jour par jour + visites numérotées, nuits, points hauts et tracé sur le globe.
 import { couverture } from '../commun/couverture.js';
 import * as Cesium from 'cesium';
 import { avisSur, noter, rejetes } from './gouts.js';
@@ -70,9 +70,9 @@ export function creerCarnet(viewer, couche) {
         <div>
           <div class="visite-nom">
             <button type="button" data-action="voir" data-cible="visite-${i}-${k}">${h(v.nom)}</button>
-            <span class="etiquette">${h(NOMS[v.categorie] ?? 'À voir')} · ${v.distanceKm} km</span>
+            <span class="etiquette">${h(NOMS[v.categorie] ?? 'À voir')}${v.detourKm >= 1 ? ` · détour ${Math.round(v.detourKm)} km` : ''}${v.labels?.length ? ' · ★' : ''}</span>
           </div>
-          <p class="pourquoi">${h(v.pourquoi || v.description)}</p>
+          <p class="pourquoi">${h(v.pourquoi || v.description)}${v.labels?.length ? `<br><span class="etiquette">★ ${h(v.labels.join(' · '))}</span>` : ''}</p>
           <div class="actions-visite">
             <button type="button" data-action="aime" aria-pressed="${avis === 1}" title="J'aime : l'IA s'en souviendra">👍</button>
             <button type="button" data-action="aime-pas" title="Pas pour moi : remplacer et s'en souvenir">👎</button>
@@ -86,17 +86,26 @@ export function creerCarnet(viewer, couche) {
 
   function htmlJour(j, i) {
     const ph = j.pointHaut;
+    const dernier = i === voyage.jours.length - 1;
+    const soir = j.base.retour
+      ? 'retour à la maison'
+      : dernier && voyage.mode === 'destination'
+        ? `arrivée à ${j.base.nom}`
+        : dernier && !voyage.retour
+          ? `fin à ${j.base.nom}`
+          : `nuit à ${j.base.nom}`;
     return `
       <article class="jour" data-jour="${i}">
-        <button type="button" class="jour-tete" data-action="voir" data-cible="base-${i}">
+        <button type="button" class="jour-tete" data-action="voir" data-cible="${j.base.retour ? `visite-${i}-0` : `base-${i}`}">
           <span class="numero">J${j.jour}</span>
           <span>
-            <strong>${h(j.base.nom)}</strong>
-            <small>${h(j.base.theme ?? '')}${j.distanceKm ? ` · ${km(j.distanceKm)} · ${duree(j.dureeH)}` : ''}</small>
+            <strong>${h(j.titre || j.base.nom)}</strong>
+            <small>${km(j.distanceKm)} · ${duree(j.dureeH)} de route · ${h(soir)}</small>
           </span>
           ${badgeMesh(j.base.couverture)}
         </button>
         <div class="jour-corps">
+          ${j.route ? `<div class="ligne-info"><span>🛣️</span><span>${h(j.route)}</span></div>` : ''}
           ${j.visites.map((v, k) => htmlVisite(v, i, k)).join('')}
           ${
             ph
@@ -189,8 +198,9 @@ export function creerCarnet(viewer, couche) {
       point: pastille(Cesium.Color.WHITE, 12),
       label: etiquette(`⌂ ${v.depart.nom}`),
     });
+    let numero = 0;
     v.jours.forEach((j, i) => {
-      if (j.base.couverture)
+      if (j.base.couverture && !j.base.retour)
         source.entities.add({
           id: `zone-${i}`,
           position: position(j.base),
@@ -200,20 +210,21 @@ export function creerCarnet(viewer, couche) {
             material: COULEURS[j.base.couverture.niveau].withAlpha(0.12),
           },
         });
-      source.entities.add({
-        id: `base-${i}`,
-        position: position(j.base),
-        point: pastille(COULEURS.ambre, 15),
-        label: etiquette(`J${j.jour} · ${j.base.nom}`),
-      });
+      if (!j.base.retour)
+        source.entities.add({
+          id: `base-${i}`,
+          position: position(j.base),
+          point: pastille(COULEURS.ambre, 15),
+          label: etiquette(`J${j.jour} · ${j.base.nom}`),
+        });
       j.visites.forEach((x, k) =>
         source.entities.add({
           id: `visite-${i}-${k}`,
           position: position(x),
           point: pastille(Cesium.Color.WHITE, 10, COULEURS.ambre),
-          label: etiquette(x.nom, {
+          label: etiquette(`${++numero} · ${x.nom}`, {
             font: '500 12px system-ui, sans-serif',
-            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 90_000),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 150_000),
           }),
         }),
       );
@@ -278,16 +289,18 @@ export function creerCarnet(viewer, couche) {
       pourquoi: '',
       couverture: noeuds.length ? couverture(nouveau, noeuds) : null,
     };
+    // Le remplaçant reprend sa place dans l'ordre de passage.
+    j.visites.sort((a, b) => a.cle - b.cle);
     afficher(voyage, { cadrer: false });
-    voir(`visite-${i}-${k}`);
+    voir(`visite-${i}-${j.visites.indexOf(j.visites.find((v) => v.id === nouveau.id))}`);
     try {
       const reponse = await fetch('/api/trace', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           depart: voyage.depart,
+          fin: voyage.arrivee,
           transport: voyage.transport,
-          retour: voyage.retour,
           jours: voyage.jours.map((x) => ({ jour: x.jour, base: x.base, visites: x.visites.map(({ lat, lon }) => ({ lat, lon })) })),
         }),
       });
@@ -331,8 +344,10 @@ export function creerCarnet(viewer, couche) {
     tour = true;
     boutonSurvol.textContent = '■ Arrêter';
     for (const [i, j] of voyage.jours.entries()) {
-      if (!tour || !(await voir(`base-${i}`))) break;
-      await pause(1200);
+      if (!j.base.retour) {
+        if (!tour || !(await voir(`base-${i}`))) break;
+        await pause(1200);
+      }
       for (const k of j.visites.keys()) {
         if (!tour || !(await voir(`visite-${i}-${k}`, 2500))) break;
         await pause(1800);
@@ -347,7 +362,7 @@ export function creerCarnet(viewer, couche) {
   /** Affiche un voyage (et le garde pour la prochaine ouverture). */
   function afficher(v, { cadrer: recadrer = true } = {}) {
     voyage = v;
-    memoire.ecrire('voyage', v);
+    memoire.ecrire('roadtrip', v);
     rendre();
     dessiner();
     if (recadrer) cadrer();

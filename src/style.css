@@ -112,7 +112,8 @@ button {
   color: var(--meshcore);
 }
 
-.puce-reseau[data-reseau='relais'] .point {
+.puce-reseau[data-reseau='relais'] .point,
+.puce-reseau[data-reseau='actif'] .point {
   color: var(--ambre);
 }
 
@@ -155,6 +156,14 @@ button {
   color: var(--doux);
   font: 11px var(--mono);
   letter-spacing: 0.08em;
+}
+
+/* Chaque vue occupe toute la hauteur : les boutons restent collés en bas. */
+.vue {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .defile {
@@ -341,6 +350,59 @@ details summary {
 .bouton-icone:hover,
 .puce:hover {
   border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ---- Questions une par une ---- */
+
+.avancement {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 18px;
+}
+
+.avancement span {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.avancement span.fait {
+  background: var(--ambre);
+}
+
+.question h2 {
+  margin-bottom: 10px;
+}
+
+.question .champ,
+.question .puces {
+  margin-top: 6px;
+}
+
+.choix-mode .puce {
+  flex: 1 1 100%;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: var(--rayon);
+  font-size: 14px;
+}
+
+#champ-cible input {
+  margin-bottom: 4px;
+}
+
+.navigation {
+  display: flex;
+  gap: 8px;
+}
+
+.navigation .secondaire {
+  flex: 0 0 56px;
+}
+
+.navigation .principal {
+  flex: 1;
 }
 
 /* ---- Progression ---- */

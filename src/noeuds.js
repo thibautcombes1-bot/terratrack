@@ -1,4 +1,5 @@
-// Couche des nœuds MeshCore et Meshtastic en direct, avec les puces de la barre du haut.
+// Option radio mesh : nœuds MeshCore et Meshtastic en direct, éteints par défaut.
+// Rien n'est téléchargé tant que l'option n'est pas allumée.
 import * as Cesium from 'cesium';
 import { h, ilYa, memoire, nombre } from './outils.js';
 
@@ -9,13 +10,14 @@ const RESEAUX = {
 const RAFRAICHIR_MS = 5 * 60_000;
 
 export function creerCoucheNoeuds(viewer) {
-  const reglages = memoire.lire('couches', { meshcore: true, meshtastic: true, relais: false });
+  const reglages = memoire.lire('mesh', { actif: false, meshcore: true, meshtastic: true, relais: false });
   const etat = Object.fromEntries(
     Object.keys(RESEAUX).map((r) => [r, { noeuds: [], date: 0, collection: null, erreur: null }]),
   );
   const barre = document.getElementById('barre');
 
   async function charger(reseau) {
+    etat[reseau].enCours = true;
     try {
       const reponse = await fetch(`/api/noeuds?reseau=${reseau}`);
       const donnees = await reponse.json();
@@ -36,6 +38,7 @@ export function creerCoucheNoeuds(viewer) {
     } catch (erreur) {
       etat[reseau].erreur = erreur.message;
     }
+    etat[reseau].enCours = false;
     majBarre();
   }
 
@@ -68,19 +71,29 @@ export function creerCoucheNoeuds(viewer) {
     if (!c) return;
     for (let i = 0; i < c.length; i++) {
       const point = c.get(i);
-      point.show = reglages[reseau] && (!reglages.relais || point.id.noeud.relais);
+      point.show = reglages.actif && reglages[reseau] && (!reglages.relais || point.id.noeud.relais);
     }
     viewer.scene.requestRender();
   }
 
-  function basculer(cle) {
-    reglages[cle] = !reglages[cle];
-    memoire.ecrire('couches', reglages);
+  function basculer(cle, valeur = !reglages[cle]) {
+    reglages[cle] = valeur;
+    memoire.ecrire('mesh', reglages);
     for (const r of Object.keys(RESEAUX)) appliquerVisibilite(r);
     majBarre();
+    if (reglages.actif) chargerSiBesoin();
+  }
+
+  function chargerSiBesoin() {
+    for (const r of Object.keys(RESEAUX)) if (!etat[r].date && !etat[r].enCours) charger(r);
   }
 
   function majBarre() {
+    const interrupteur = `<button class="puce-reseau" data-reseau="actif" aria-pressed="${reglages.actif}" title="Afficher les nœuds radio MeshCore et Meshtastic"><span class="point"></span>📡 Radio mesh</button>`;
+    if (!reglages.actif) {
+      barre.innerHTML = interrupteur;
+      return;
+    }
     const puces = Object.entries(RESEAUX).map(([r, info]) => {
       const e = etat[r];
       const titre = e.erreur
@@ -94,7 +107,7 @@ export function creerCoucheNoeuds(viewer) {
     puces.push(
       `<button class="puce-reseau" data-reseau="relais" aria-pressed="${reglages.relais}" title="N'afficher que les relais (répéteurs, routeurs)"><span class="point"></span>Relais seulement</button>`,
     );
-    barre.innerHTML = puces.join('');
+    barre.innerHTML = interrupteur + puces.join('');
   }
 
   barre.addEventListener('click', (ev) => {
@@ -103,11 +116,14 @@ export function creerCoucheNoeuds(viewer) {
   });
 
   majBarre();
-  const toutCharger = () => Promise.all(Object.keys(RESEAUX).map(charger));
-  toutCharger();
-  setInterval(toutCharger, RAFRAICHIR_MS);
+  if (reglages.actif) chargerSiBesoin();
+  setInterval(() => {
+    if (reglages.actif) for (const r of Object.keys(RESEAUX)) charger(r);
+  }, RAFRAICHIR_MS);
 
   return {
+    /** Allume l'option (un road trip préparé avec le mesh). */
+    activer: () => basculer('actif', true),
     /** Nœuds chargés des réseaux demandés (pour recalculer une couverture). */
     noeuds: (reseaux) => reseaux.flatMap((r) => etat[r]?.noeuds ?? []),
   };

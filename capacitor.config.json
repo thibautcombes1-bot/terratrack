@@ -1,0 +1,9 @@
+{
+  "appId": "fr.terratrack.terrain",
+  "appName": "TerraTrack",
+  "webDir": "terrain/dist",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#f6f3ea"
+  }
+}
