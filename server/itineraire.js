@@ -26,6 +26,20 @@ export function preparerRoute(coords) {
   return { coords: gardes, proj, pts, cumul, longueur: cumul.at(-1) };
 }
 
+/** Test rapide : le point est-il dans le rectangle des coordonnées [lon, lat], élargi de `margeKm` ? */
+export function rectangle(coords, margeKm) {
+  let [o, s, e, n] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const [lon, lat] of coords) {
+    if (lon < o) o = lon;
+    if (lon > e) e = lon;
+    if (lat < s) s = lat;
+    if (lat > n) n = lat;
+  }
+  const dLat = margeKm / 110.57;
+  const dLon = margeKm / (111.32 * Math.cos((((s + n) / 2) * Math.PI) / 180));
+  return ({ lat, lon }) => lat >= s - dLat && lat <= n + dLat && lon >= o - dLon && lon <= e + dLon;
+}
+
 /** Position d'un lieu par rapport à la route : abscisse `s` (km), `ecart` (km), `cote` (+1 gauche, -1 droite). */
 export function situer(route, lieu) {
   const q = route.proj(lieu);

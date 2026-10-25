@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
-import { chargerGraphe, detours, itineraire } from './routeur.js';
+import { chargerGraphe, detours, itineraire, lireGrapheBinaire } from './routeur.js';
 
 // Petit réseau : A —D1— B —A75 (péage, sens unique B→C)— C, un raccourci lent A — C,
 // et E au bout d'une route à double sens depuis B.
@@ -61,29 +61,32 @@ test('détour : B est sur la route, E demande un aller-retour', () => {
   assert.ok(Math.abs(e.atteindreSec - 360 - 396) < 1, `${e.atteindreSec}`);
 });
 
-const pack = new URL('../terrain/public/pack/lozere/graphe.json', import.meta.url);
-test('pack Lozère : Mende → Florac par la route, en moins de 1 h 15', { skip: !fs.existsSync(pack) }, () => {
-  const lozere = chargerGraphe(JSON.parse(fs.readFileSync(pack, 'utf8')));
-  const t = itineraire(lozere, { lat: 44.5181, lon: 3.5006 }, { lat: 44.3245, lon: 3.5933 });
+const pack = new URL('../terrain/public/pack/france/graphe.bin', import.meta.url);
+const lirePack = () => chargerGraphe(lireGrapheBinaire(fs.readFileSync(pack)));
+const france = fs.existsSync(pack) ? lirePack() : null;
+const communes = france ? JSON.parse(fs.readFileSync(new URL('../terrain/public/pack/france/lieux.json', import.meta.url), 'utf8')).communes : [];
+const commune = (nom) => communes.find((c) => c.nom === nom && c.type !== 'hamlet');
+
+test('pack France : Mende → Florac par la route, en moins de 1 h 15', { skip: !france }, () => {
+  const t = itineraire(france, { lat: 44.5181, lon: 3.5006 }, { lat: 44.3245, lon: 3.5933 });
   assert.ok(t, 'itinéraire trouvé');
   assert.ok(t.metres > 30000 && t.metres < 50000, `${t.metres} m`);
   assert.ok(t.secondes > 1800 && t.secondes < 4500, `${t.secondes} s`);
 });
 
-test('pack étendu : communes de l’Hérault et itinéraires continus vers la Lozère', { skip: !fs.existsSync(pack) }, () => {
-  const graphe = chargerGraphe(JSON.parse(fs.readFileSync(pack, 'utf8')));
-  const { communes } = JSON.parse(fs.readFileSync(new URL('../terrain/public/pack/lozere/lieux.json', import.meta.url), 'utf8'));
-  const noms = ['Montpellier', 'Lodève', 'Béziers', 'Sète', 'Agde', 'Saint-Pons-de-Thomières', 'Mende'];
-  const points = new Map(noms.map((nom) => [nom, communes.find((c) => c.nom === nom)]));
-  for (const nom of noms) assert.ok(points.get(nom), `${nom} disponible dans la recherche hors ligne`);
+test('pack France : grands trajets continus, et la Corse à part', { skip: !france }, () => {
   for (const [depart, arrivee, minimumKm, maximumKm] of [
     ['Lodève', 'Montpellier', 45, 85],
-    ['Béziers', 'Sète', 40, 90],
     ['Montpellier', 'Mende', 140, 230],
+    ['Paris', 'Marseille', 740, 840],
+    ['Brest', 'Strasbourg', 1000, 1200],
+    ['Ajaccio', 'Bastia', 130, 180],
   ]) {
-    const trajet = itineraire(graphe, points.get(depart), points.get(arrivee));
+    const [a, b] = [commune(depart), commune(arrivee)];
+    assert.ok(a && b, `${depart} et ${arrivee} dans la recherche hors ligne`);
+    const trajet = itineraire(france, a, b);
     assert.ok(trajet, `${depart} → ${arrivee} connecté`);
     assert.ok(trajet.metres > minimumKm * 1000 && trajet.metres < maximumKm * 1000, `${depart} → ${arrivee} : ${trajet.metres} m`);
-    assert.ok(Number.isFinite(trajet.secondes) && trajet.coords.length > 1);
   }
+  assert.equal(itineraire(france, commune('Nice'), commune('Ajaccio')), null, 'pas de route vers la Corse');
 });

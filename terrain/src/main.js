@@ -27,7 +27,8 @@ import {
   totaux,
 } from './parcours.js';
 
-const REGION = 'lozere';
+// Le pack de la France ; « ?pack=lozere » ouvre un autre pack présent (essais sur le Mac).
+const REGION = new URLSearchParams(location.search).get('pack') ?? 'france';
 const $ = (s) => document.querySelector(s);
 
 // ---------- Hors ligne ----------
@@ -1189,7 +1190,9 @@ const COUCHES = {
   eau: { nom: 'Eau potable', couleur: '#00897b', test: (l) => l.type === 'Eau potable' },
 };
 // Les listes sont faites une fois ; « Plus tard » change, on la relit à chaque fois.
-const parCouche = Object.fromEntries(Object.entries(COUCHES).filter(([k]) => k !== 'plusTard').map(([k, c]) => [k, pack.lieux.filter(c.test)]));
+// Les listes ne sont faites qu'à la première case cochée (400 000 lieux en France) ; « Plus tard » change, on la relit.
+const parCouche = {};
+const listeCouche = (k) => (parCouche[k] ??= pack.lieux.filter(COUCHES[k].test));
 const couchesCochees = new Set(memoire.lire('couches', ['plusTard']));
 const POINTS_MAX = 400;
 
@@ -1207,7 +1210,7 @@ function majDecouverte() {
   const vus = new Map();
   for (const k of Object.keys(COUCHES)) {
     if (!couchesCochees.has(k)) continue;
-    const liste = k === 'plusTard' ? lieuxPourPlusTard().map((f) => lieuParId.get(f.id) ?? f) : parCouche[k];
+    const liste = k === 'plusTard' ? lieuxPourPlusTard().map((f) => lieuParId.get(f.id) ?? f) : listeCouche(k);
     for (const l of liste)
       if (!vus.has(l.id) && bornes.contains([l.lon, l.lat])) vus.set(l.id, { ...l, couleur: COUCHES[k].couleur, favori: estPourPlusTard(l.id) });
   }

@@ -28,18 +28,28 @@ ou sur iPhone avec la signature de développement existante.
 
 ## Régénérer le pack
 
-Le constructeur `outils/pack/construire-pack.mjs` utilise osmium-tool et les fichiers
-suivants dans `.brut/` :
+Le pack couvre la France métropolitaine et la Corse (`terrain/public/pack/france/`) :
 
-- `languedoc-roussillon.osm.pbf` : extrait source avec son horodatage OSM ;
-- `routes.opl` : routes du rectangle avec coordonnées des nœuds ;
-- `pois.geojsonseq` : points et polygones des lieux et communes ;
-- `lozere.pmtiles` : carte du même rectangle, extraite avec `pmtiles extract`.
+- `carte.pmtiles` : carte Protomaps jusqu'au zoom 13, découpée sur le contour de la France (~1,3 Go) ;
+- `graphe.bin` : réseau routier en binaire (autoroutes → routes non classées, sans rues de quartier) ;
+- `lieux.json` : lieux des 4 boutons, lieux à découvrir, activités et communes.
+
+Sur iPhone, la carte est lue par morceaux par le plugin natif « Pack » ; le calcul d'itinéraire
+utilise A* et ne s'accroche qu'aux grandes composantes du réseau (continent, Corse).
 
 ```sh
-node outils/pack/construire-pack.mjs
+cd .brut
+curl -L -o france.osm.pbf https://download.geofabrik.de/europe/france-latest.osm.pbf
+curl -L -o france.poly https://download.geofabrik.de/europe/france.poly   # puis en GeoJSON : france-metropole.geojson
+pmtiles extract https://build.protomaps.com/AAAAMMJJ.pmtiles france.pmtiles --region=france-metropole.geojson --maxzoom=13
+cd ..
+sh outils/pack/preparer-brut.sh france.osm.pbf
+node --max-old-space-size=12000 outils/pack/construire-pack.mjs france
 npm test
 ```
+
+L'ancien pack régional reste possible : `node outils/pack/construire-pack.mjs lozere`
+(depuis `languedoc-roussillon.osm.pbf`), puis `?pack=lozere` dans l'adresse de l'appli web.
 
 La date affichée provient de l’en-tête du fichier OSM, et non de sa date de téléchargement.
 Le déplacement de la carte est libre ; les données hors du rectangle ne sont pas incluses.

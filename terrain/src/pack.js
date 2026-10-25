@@ -1,9 +1,34 @@
-// Chargement du pack d'une région : carte, réseau routier, lieux. Tout vient du téléphone
-// (fichiers embarqués dans l'appli iOS, ou gardés par le service worker sur le web).
-import { FileSource, PMTiles } from 'pmtiles';
-import { chargerGraphe } from '../../commun/routeur.js';
+// Chargement du pack : carte, réseau routier, lieux. Tout vient du téléphone
+// (fichiers embarqués dans l'appli iOS, ou servis par le site sur le web).
+import { Capacitor, registerPlugin } from '@capacitor/core';
+import { PMTiles } from 'pmtiles';
+import { chargerGraphe, lireGrapheBinaire } from '../../commun/routeur.js';
 
 const adresse = (chemin) => new URL(chemin, new URL(import.meta.env.BASE_URL, location.href)).href;
+
+// Plugin natif « Pack » (ios/App/App/TerraTrackIA.swift) : lit un morceau d'un fichier de l'appli.
+const PackNatif = registerPlugin('Pack');
+
+/**
+ * La carte de la France (plus d'un gigaoctet) ne peut pas être chargée en mémoire :
+ * sur iPhone, chaque tuile est lue à sa place dans le fichier par le plugin natif.
+ */
+class SourceNative {
+  constructor(chemin) {
+    this.chemin = chemin;
+  }
+  getKey() {
+    return this.chemin;
+  }
+  async getBytes(debut, longueur) {
+    const { donnees } = await PackNatif.lire({ chemin: this.chemin, debut, longueur });
+    if (Uint8Array.fromBase64) return { data: Uint8Array.fromBase64(donnees).buffer };
+    const binaire = atob(donnees);
+    const octets = new Uint8Array(binaire.length);
+    for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
+    return { data: octets.buffer };
+  }
+}
 
 export async function chargerPack(region, signaler = () => {}) {
   const lire = async (fichier) => {
@@ -11,20 +36,23 @@ export async function chargerPack(region, signaler = () => {}) {
     if (!reponse.ok) throw new Error(`Pack incomplet : ${fichier} (${reponse.status})`);
     return reponse;
   };
-  signaler('Lecture du pack de la région…');
+  signaler('Lecture du pack…');
   const meta = await (await lire('meta.json')).json();
-  const [donneesGraphe, donneesLieux, carte] = await Promise.all([
-    lire('graphe.json').then((r) => r.json()),
+  const [tamponGraphe, donneesLieux] = await Promise.all([
+    lire('graphe.bin').then((r) => r.arrayBuffer()),
     lire('lieux.json').then((r) => r.json()),
-    lire('carte.pmtiles').then((r) => r.blob()),
   ]);
   signaler('Préparation du réseau routier…');
+  // Laisse l'écran afficher le message avant le calcul, qui bloque quelques secondes.
+  await new Promise((ok) => setTimeout(ok, 30));
+  const graphe = chargerGraphe(lireGrapheBinaire(tamponGraphe));
+  // Sur le web, la carte est lue par morceaux (requêtes partielles) au fil des tuiles affichées.
+  const chemin = `pack/${region}/carte.pmtiles`;
   return {
     meta,
-    graphe: chargerGraphe(donneesGraphe),
+    graphe,
     lieux: donneesLieux.lieux,
     communes: donneesLieux.communes,
-    // La carte entière est lue en mémoire : pas de requêtes partielles, donc rien à demander au réseau.
-    pmtiles: new PMTiles(new FileSource(new File([carte], 'carte.pmtiles'))),
+    pmtiles: new PMTiles(Capacitor.isNativePlatform() ? new SourceNative(chemin) : adresse(chemin)),
   };
 }

@@ -4,6 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import readline from 'node:readline';
+import { lignes } from './lignes.mjs';
 import { distanceKm } from '../../commun/geo.js';
 
 const arrondi = (x) => Math.round(x * 1e5) / 1e5;
@@ -222,14 +223,13 @@ function centre(g) {
 async function sportsNature(brut) {
   const pbf = new URL('activites.osm.pbf', brut).pathname;
   const geo = new URL('activites.geojsonseq', brut).pathname;
-  osmium('tags-filter', new URL('zone.osm.pbf', brut).pathname, 'nwr/highway=via_ferrata', 'nwr/sport', 'nwr/natural=beach', 'nwr/leisure=bathing_place', '-o', pbf, '--overwrite');
+  osmium('tags-filter', new URL('zone.osm.pbf', brut).pathname, 'nwr/highway=via_ferrata', 'nwr/sport=climbing,bouldering,climbing_adventure,via_ferrata,canoe,kayak', 'nwr/natural=beach', 'nwr/leisure=bathing_place', '-o', pbf, '--overwrite');
   osmium('export', pbf, '-f', 'geojsonseq', '-a', 'type,id', '-o', geo, '--overwrite');
   const lieux = [];
   const segments = [];
   const departs = [];
   const vus = new Set();
-  const lecteur = readline.createInterface({ input: fs.createReadStream(geo) });
-  for await (const brute of lecteur) {
+  for await (const brute of lignes(geo)) {
     const ligne = brute.replace(/^\x1e/, '').trim();
     if (!ligne) continue;
     const f = JSON.parse(ligne);
@@ -274,30 +274,39 @@ async function sportsNature(brut) {
 
 // ---------- UNESCO ----------
 
-/** Biens du patrimoine mondial (et leurs composantes) dans le rectangle, depuis Wikidata. */
+/**
+ * Biens du patrimoine mondial (et leurs composantes) situés en France, depuis Wikidata,
+ * gardés s'ils tombent dans le rectangle. Filtrer par pays plutôt que par rectangle :
+ * la recherche par rectangle sur toute la France dépasse le temps permis par Wikidata.
+ */
 async function unesco(bbox, brut) {
-  const cache = new URL('unesco.json', brut);
-  if (fs.existsSync(cache)) return JSON.parse(fs.readFileSync(cache, 'utf8'));
-  const [o, s, e, n] = bbox;
-  const requete = `SELECT ?item ?nom ?coord WHERE {
-    SERVICE wikibase:box { ?item wdt:P625 ?coord.
-      bd:serviceParam wikibase:cornerSouthWest "Point(${o} ${s})"^^geo:wktLiteral; wikibase:cornerNorthEast "Point(${e} ${n})"^^geo:wktLiteral. }
-    { ?item wdt:P1435 wd:Q9259 } UNION { ?item wdt:P361 ?bien. ?bien wdt:P1435 wd:Q9259 }
-    SERVICE wikibase:label { bd:serviceParam wikibase:language "fr". ?item rdfs:label ?nom. } }`;
-  const reponse = await fetch('https://query.wikidata.org/sparql', {
-    method: 'POST',
-    headers: { 'User-Agent': 'TerraTrack/0.1 (construction de données)', Accept: 'application/sparql-results+json', 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ query: requete }),
-  });
-  const biens = new Map();
-  for (const l of (await reponse.json()).results.bindings) {
-    const [lon, lat] = l.coord.value.match(/-?[\d.]+/g).map(Number);
-    const id = l.item.value.split('/').pop();
-    if (!biens.has(id)) biens.set(id, { id, nom: l.nom.value, lat: arrondi(lat), lon: arrondi(lon) });
+  const cache = new URL('unesco-france.json', brut);
+  if (!fs.existsSync(cache)) {
+    const requete = `SELECT ?item ?nom ?coord WHERE {
+      { ?item wdt:P1435 wd:Q9259 } UNION { ?item wdt:P361 ?bien. ?bien wdt:P1435 wd:Q9259 }
+      ?item wdt:P17 wd:Q142; wdt:P625 ?coord.
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "fr". ?item rdfs:label ?nom. } }`;
+    let donnees;
+    for (let essai = 1; !donnees; essai++) {
+      const reponse = await fetch('https://query.wikidata.org/sparql', {
+        method: 'POST',
+        headers: { 'User-Agent': 'TerraTrack/0.1 (construction de données)', Accept: 'application/sparql-results+json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ query: requete }),
+      });
+      if (reponse.ok) donnees = await reponse.json();
+      else if (essai >= 3) throw new Error(`Wikidata UNESCO : ${reponse.status} ${(await reponse.text()).slice(0, 80)}`);
+      else await new Promise((ok) => setTimeout(ok, 10000 * essai));
+    }
+    const biens = new Map();
+    for (const l of donnees.results.bindings) {
+      const [lon, lat] = l.coord.value.match(/-?[\d.]+/g).map(Number);
+      const id = l.item.value.split('/').pop();
+      if (!biens.has(id)) biens.set(id, { id, nom: l.nom.value, lat: arrondi(lat), lon: arrondi(lon) });
+    }
+    fs.writeFileSync(cache, JSON.stringify([...biens.values()]));
   }
-  const liste = [...biens.values()];
-  fs.writeFileSync(cache, JSON.stringify(liste));
-  return liste;
+  const [o, s, e, n] = bbox;
+  return JSON.parse(fs.readFileSync(cache, 'utf8')).filter((b) => b.lon >= o && b.lon <= e && b.lat >= s && b.lat <= n);
 }
 
 export async function lireActivites(brut, bbox) {

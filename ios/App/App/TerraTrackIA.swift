@@ -7,10 +7,52 @@ import Foundation
 import FoundationModels
 #endif
 
-/// Le contrôleur Capacitor de l'appli, qui enregistre le plugin local « IA ».
+/// Le contrôleur Capacitor de l'appli, qui enregistre les plugins locaux « IA » et « Pack ».
 class ViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(IAPlugin())
+        bridge?.registerPluginInstance(PackPlugin())
+    }
+}
+
+/// Lit un morceau d'un fichier du pack embarqué (la carte de la France fait plus d'un gigaoctet :
+/// on lit chaque tuile à sa place au lieu de charger le fichier entier).
+@objc(PackPlugin)
+public class PackPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "PackPlugin"
+    public let jsName = "Pack"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "lire", returnType: CAPPluginReturnPromise),
+    ]
+
+    private let file = DispatchQueue(label: "terratrack.pack")
+    private var ouverts: [String: FileHandle] = [:]
+
+    @objc func lire(_ call: CAPPluginCall) {
+        guard let chemin = call.getString("chemin"), chemin.hasPrefix("pack/"), !chemin.contains(".."),
+              let debut = call.getDouble("debut"), let longueur = call.getInt("longueur"), longueur >= 0
+        else {
+            call.reject("Demande de lecture invalide")
+            return
+        }
+        file.async {
+            do {
+                let fichier = try self.ouvrir(chemin)
+                try fichier.seek(toOffset: UInt64(debut))
+                let donnees = try fichier.read(upToCount: longueur) ?? Data()
+                call.resolve(["donnees": donnees.base64EncodedString()])
+            } catch {
+                call.reject("Lecture du pack impossible : \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func ouvrir(_ chemin: String) throws -> FileHandle {
+        if let ouvert = ouverts[chemin] { return ouvert }
+        guard let dossier = Bundle.main.resourceURL else { throw CocoaError(.fileNoSuchFile) }
+        let fichier = try FileHandle(forReadingFrom: dossier.appendingPathComponent("public").appendingPathComponent(chemin))
+        ouverts[chemin] = fichier
+        return fichier
     }
 }
 

@@ -19,7 +19,9 @@ function serviceWorker() {
     name: 'terratrack-service-worker',
     apply: 'build',
     generateBundle(_, bundle) {
-      const fichiers = ['./', ...Object.keys(bundle), ...fichiersPublics(path.join(racine, 'public'))].map((f) =>
+      // La carte (plus d'un gigaoctet pour la France) n'est pas mise en cache d'avance : lue par morceaux.
+      const publics = fichiersPublics(path.join(racine, 'public')).filter((f) => !f.endsWith('.pmtiles'));
+      const fichiers = ['./', ...Object.keys(bundle), ...publics].map((f) =>
         f === './' ? f : `./${f.split('/').map(encodeURIComponent).join('/')}`,
       );
       const source = fs

@@ -1,21 +1,37 @@
 // Construit le pack hors ligne d'une région : graphe routier, lieux des 4 boutons,
 // lieux à découvrir, communes (recherche) et carte. Prérequis (voir terrain/README.md) :
-//   .brut/routes.opl       routes de la zone avec leurs coordonnées (osmium)
-//   .brut/pois.geojsonseq  lieux de la zone (osmium export)
-//   .brut/lozere.pmtiles   carte de la zone (pmtiles extract)
-//   node outils/pack/construire-pack.mjs
+//   sh outils/pack/preparer-brut.sh france.osm.pbf   routes.opl, pois.geojsonseq, zone.osm.pbf
+//   .brut/france.pmtiles                              carte de la zone (pmtiles extract)
+//   node outils/pack/construire-pack.mjs [france|lozere]
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import readline from 'node:readline';
+import { lignes } from './lignes.mjs';
 import { distanceKm } from '../../commun/geo.js';
 import { lireActivites } from './activites.mjs';
+import { chargerGraphe } from '../../commun/routeur.js';
 
-const REGION = {
-  // Identifiant conservé pour les parcours et installations existants.
-  id: 'lozere',
-  nom: 'Hérault, Lozère et Cévennes',
-  bbox: [2.45, 43.15, 4.25, 44.98],
+const REGIONS = {
+  // France métropolitaine et Corse : carte jusqu'au zoom 13, graphe sans rues de quartier.
+  france: {
+    id: 'france',
+    nom: 'France',
+    bbox: [-5.2, 41.3, 9.6, 51.15],
+    source: 'france.osm.pbf',
+    carte: 'france.pmtiles',
+    contour: 'france-metropole.geojson',
+    tolerance: 0.0001,
+  },
+  lozere: {
+    id: 'lozere',
+    nom: 'Hérault, Lozère et Cévennes',
+    bbox: [2.45, 43.15, 4.25, 44.98],
+    source: 'languedoc-roussillon.osm.pbf',
+    carte: 'lozere.pmtiles',
+    tolerance: 0.00005,
+  },
 };
+const REGION = REGIONS[process.argv[2] ?? 'france'];
 const BRUT = new URL('../../.brut/', import.meta.url);
 const SORTIE = new URL(`../../terrain/public/pack/${REGION.id}/`, import.meta.url);
 
@@ -51,25 +67,59 @@ function lireTags(champ) {
   return tags;
 }
 
-async function lireRoutes() {
-  const voies = [];
-  const lecteur = readline.createInterface({ input: fs.createReadStream(new URL('routes.opl', BRUT)) });
+/**
+ * Lit routes.opl et appelle `traiter(tags, ids, lon, lat)` pour chaque voie roulable.
+ * Avec `coordonnees: false`, seuls les identifiants des nœuds sont lus (plus rapide).
+ */
+async function parcourirRoutes(traiter, { coordonnees = true } = {}) {
+  const lecteur = readline.createInterface({ input: fs.createReadStream(new URL('routes.opl', BRUT)), crlfDelay: Infinity });
   for await (const ligne of lecteur) {
     if (!ligne.startsWith('w')) continue;
     const champs = Object.fromEntries(ligne.split(' ').map((c) => [c[0], c.slice(1)]));
     const tags = lireTags(champs.T);
-    const noeuds = (champs.N ?? '')
-      .split(',')
-      .map((n) => n.match(/^n(\d+)x([-\d.]+)y([-\d.]+)$/))
-      .filter(Boolean)
-      .map(([, id, lon, lat]) => ({ id, lon: Number(lon), lat: Number(lat) }));
-    if (noeuds.length >= 2 && VITESSES[tags.highway]) voies.push({ tags, noeuds });
+    if (!VITESSES[tags.highway] || !champs.N) continue;
+    const morceaux = champs.N.split(',');
+    const ids = new Float64Array(morceaux.length);
+    const lon = coordonnees ? new Float64Array(morceaux.length) : null;
+    const lat = coordonnees ? new Float64Array(morceaux.length) : null;
+    let k = 0;
+    for (const m of morceaux) {
+      const x = m.indexOf('x');
+      const y = m.indexOf('y');
+      if (x < 0 || y < 0) continue;
+      ids[k] = Number(m.slice(1, x));
+      if (coordonnees) {
+        lon[k] = Number(m.slice(x + 1, y));
+        lat[k] = Number(m.slice(y + 1));
+      }
+      k++;
+    }
+    if (k >= 2) traiter(tags, ids.subarray(0, k), lon?.subarray(0, k), lat?.subarray(0, k));
   }
-  return voies;
 }
 
-/** Douglas-Peucker en degrés (tolérance ~5 m), pour alléger le dessin des routes. */
-function simplifier(points, tolerance = 0.00005) {
+/** Tableau typé qui s'agrandit : des listes JS ordinaires seraient trop lourdes pour la France. */
+class Croissant {
+  constructor(Type, capacite = 1 << 20) {
+    this.Type = Type;
+    this.t = new Type(capacite);
+    this.n = 0;
+  }
+  push(x) {
+    if (this.n === this.t.length) {
+      const t = new this.Type(this.t.length * 2);
+      t.set(this.t);
+      this.t = t;
+    }
+    this.t[this.n++] = x;
+  }
+  get valeurs() {
+    return this.t.subarray(0, this.n);
+  }
+}
+
+/** Douglas-Peucker en degrés (5 m pour une région, 10 m pour la France), pour alléger le dessin des routes. */
+function simplifier(points, tolerance = REGION.tolerance) {
   if (points.length <= 2) return points;
   const [a, b] = [points[0], points.at(-1)];
   let max = 0;
@@ -98,24 +148,43 @@ function sensUnique(tags) {
   return 0;
 }
 
-function construireGraphe(voies) {
-  // Un nœud devient un sommet du graphe s'il est partagé par plusieurs voies ou s'il est une extrémité.
-  const usages = new Map();
-  for (const v of voies)
-    v.noeuds.forEach((n, i) => {
-      const bonus = i === 0 || i === v.noeuds.length - 1 ? 2 : 1;
-      usages.set(n.id, (usages.get(n.id) ?? 0) + bonus);
-    });
-  const indices = new Map();
-  const sommets = [];
-  const sommet = (n) => {
-    if (!indices.has(n.id)) {
-      indices.set(n.id, sommets.length / 2);
-      sommets.push(Math.round(n.lon * 1e5), Math.round(n.lat * 1e5));
+/**
+ * Graphe routier en deux lectures de routes.opl, sans grande table de hachage :
+ * 1. tous les nœuds des voies (les extrémités deux fois), triés : ceux vus au moins deux fois
+ *    sont les carrefours, c'est-à-dire les sommets ;
+ * 2. chaque voie est coupée à ses carrefours ; chaque morceau devient une arête.
+ */
+async function construireGraphe() {
+  const references = new Croissant(Float64Array, 1 << 24);
+  await parcourirRoutes(
+    (tags, ids) => {
+      for (let i = 0; i < ids.length; i++) {
+        references.push(ids[i]);
+        if (i === 0 || i === ids.length - 1) references.push(ids[i]);
+      }
+    },
+    { coordonnees: false },
+  );
+  const tries = references.valeurs.sort();
+  const carrefours = new Croissant(Float64Array, 1 << 22);
+  for (let i = 1; i < tries.length; i++)
+    if (tries[i] === tries[i - 1] && (!carrefours.n || carrefours.t[carrefours.n - 1] !== tries[i])) carrefours.push(tries[i]);
+  const ids = carrefours.valeurs;
+  references.t = null;
+  console.log(`graphe : ${tries.length} références de nœuds, ${ids.length} carrefours`);
+  const indice = (id) => {
+    let bas = 0;
+    let haut = ids.length - 1;
+    while (bas <= haut) {
+      const milieu = (bas + haut) >> 1;
+      if (ids[milieu] === id) return milieu;
+      if (ids[milieu] < id) bas = milieu + 1;
+      else haut = milieu - 1;
     }
-    return indices.get(n.id);
+    return -1;
   };
 
+  const sommets = new Int32Array(2 * ids.length);
   const noms = [];
   const indiceNom = new Map();
   const nomDe = (tags) => {
@@ -127,44 +196,91 @@ function construireGraphe(voies) {
     }
     return indiceNom.get(nom);
   };
-
-  const aretes = { a: [], b: [], m: [], v: [], s: [], p: [], n: [], g: [] };
-  const geometrie = [];
-  for (const { tags, noeuds } of voies) {
+  const aretes = {
+    a: new Croissant(Int32Array),
+    b: new Croissant(Int32Array),
+    m: new Croissant(Uint32Array),
+    v: new Croissant(Uint8Array),
+    s: new Croissant(Int8Array),
+    p: new Croissant(Uint8Array),
+    n: new Croissant(Int32Array),
+    g: new Croissant(Uint32Array),
+  };
+  const geometrie = new Croissant(Int32Array, 1 << 24);
+  await parcourirRoutes((tags, nids, lon, lat) => {
     const vitesseClasse = VITESSES[tags.highway];
     const limite = Number.parseInt(tags.maxspeed, 10);
     const vitesseBase = Number.isFinite(limite) ? Math.min(vitesseClasse, limite) : vitesseClasse;
     const sens = sensUnique(tags);
     const peage = tags.toll === 'yes' ? 1 : 0;
     const nom = nomDe(tags);
+    const sommetDe = (i) => {
+      const k = indice(nids[i]);
+      sommets[2 * k] = Math.round(lon[i] * 1e5);
+      sommets[2 * k + 1] = Math.round(lat[i] * 1e5);
+      return k;
+    };
     let debut = 0;
-    for (let i = 1; i < noeuds.length; i++) {
-      if (usages.get(noeuds[i].id) < 2 && i < noeuds.length - 1) continue;
-      const morceau = noeuds.slice(debut, i + 1);
+    for (let i = 1; i < nids.length; i++) {
+      if (i < nids.length - 1 && indice(nids[i]) < 0) continue;
+      const morceau = [];
+      for (let k = debut; k <= i; k++) morceau.push({ lon: lon[k], lat: lat[k] });
       let metres = 0;
       for (let k = 1; k < morceau.length; k++) metres += distanceKm(morceau[k - 1], morceau[k]) * 1000;
       const droit = distanceKm(morceau[0], morceau.at(-1)) * 1000;
       // Route sinueuse (lacets) : on roule moins vite que la vitesse de la catégorie.
       const sinuosite = droit > 50 ? metres / droit : 1;
       const vitesse = Math.round(vitesseBase / Math.min(1.6, Math.max(1, Math.sqrt(sinuosite))));
-      aretes.a.push(sommet(morceau[0]));
-      aretes.b.push(sommet(morceau.at(-1)));
+      aretes.a.push(sommetDe(debut));
+      aretes.b.push(sommetDe(i));
       aretes.m.push(Math.round(metres));
       aretes.v.push(Math.max(5, vitesse));
       aretes.s.push(sens);
       aretes.p.push(peage);
       aretes.n.push(nom);
-      aretes.g.push(geometrie.length / 2);
-      for (const p of simplifier(morceau)) geometrie.push(Math.round(p.lon * 1e5), Math.round(p.lat * 1e5));
-      aretes.g.push(geometrie.length / 2);
+      aretes.g.push(geometrie.n / 2);
+      for (const p of simplifier(morceau)) {
+        geometrie.push(Math.round(p.lon * 1e5));
+        geometrie.push(Math.round(p.lat * 1e5));
+      }
+      aretes.g.push(geometrie.n / 2);
       debut = i;
     }
+  });
+  return {
+    sommets,
+    aretes: Object.fromEntries(Object.entries(aretes).map(([k, c]) => [k, c.valeurs])),
+    geometrie: geometrie.valeurs,
+    noms,
+  };
+}
+
+/**
+ * Graphe en binaire (graphe.bin) : « TTG1 », longueur de l'en-tête, en-tête JSON (classes, noms,
+ * emplacement des tableaux), puis les tableaux typés alignés sur 8 octets. Le téléphone les lit
+ * sans copie ; en JSON, le graphe de la France ne tiendrait pas en mémoire.
+ */
+function ecrireGrapheBinaire(fichier, { sommets, aretes, geometrie, noms, composante, principal }) {
+  const tableaux = [['sommets', sommets], ...Object.entries(aretes), ['geometrie', geometrie], ['composante', composante], ['principal', principal]];
+  const aligne = (n) => Math.ceil(n / 8) * 8;
+  let decalage = 0;
+  const plan = tableaux.map(([nom, t]) => {
+    const place = { nom, type: t.constructor.name, longueur: t.length, decalage };
+    decalage += aligne(t.byteLength);
+    return place;
+  });
+  const entete = Buffer.from(JSON.stringify({ version: 1, classes: CLASSES, noms, tableaux: plan }));
+  const tete = Buffer.alloc(aligne(8 + entete.length));
+  tete.write('TTG1', 0);
+  tete.writeUInt32LE(entete.length, 4);
+  entete.copy(tete, 8);
+  const fd = fs.openSync(fichier, 'w');
+  fs.writeSync(fd, tete);
+  for (const [, t] of tableaux) {
+    fs.writeSync(fd, Buffer.from(t.buffer, t.byteOffset, t.byteLength));
+    if (aligne(t.byteLength) > t.byteLength) fs.writeSync(fd, Buffer.alloc(aligne(t.byteLength) - t.byteLength));
   }
-  // g contient [début, fin[ de chaque géométrie : on le ramène à une paire par arête.
-  const g = [];
-  for (let i = 0; i < aretes.g.length; i += 2) g.push(aretes.g[i], aretes.g[i + 1]);
-  aretes.g = g;
-  return { sommets, aretes, geometrie, noms };
+  fs.closeSync(fd);
 }
 
 // ---------- Lieux des 4 boutons ----------
@@ -261,8 +377,7 @@ function centre(geometrie) {
 async function lireLieux() {
   const lieux = [];
   const communes = [];
-  const lecteur = readline.createInterface({ input: fs.createReadStream(new URL('pois.geojsonseq', BRUT)) });
-  for await (const brute of lecteur) {
+  for await (const brute of lignes(new URL('pois.geojsonseq', BRUT))) {
     const ligne = brute.replace(/^\x1e/, '');
     if (!ligne.trim()) continue;
     const f = JSON.parse(ligne);
@@ -294,8 +409,33 @@ async function lireLieux() {
 }
 
 const arrondi = (x) => Math.round(x * 1e5) / 1e5;
+// Le contour de la France (Geofabrik) écarte les lieux des pays voisins compris dans le rectangle.
+const contour = REGION.contour && JSON.parse(fs.readFileSync(new URL(REGION.contour, BRUT), 'utf8')).coordinates[0];
+function dansContour({ lat, lon }) {
+  let dedans = false;
+  for (let i = 0, j = contour.length - 1; i < contour.length; j = i++) {
+    const [xi, yi] = contour[i];
+    const [xj, yj] = contour[j];
+    if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) dedans = !dedans;
+  }
+  return dedans;
+}
 const dansRegion = ({ lat, lon }) =>
-  lon >= REGION.bbox[0] && lon <= REGION.bbox[2] && lat >= REGION.bbox[1] && lat <= REGION.bbox[3];
+  lon >= REGION.bbox[0] - 2 && lon <= REGION.bbox[2] + 1 && lat >= REGION.bbox[1] - 1 && lat <= REGION.bbox[3] + 1 &&
+  (contour ? dansContour({ lat, lon }) : lon >= REGION.bbox[0] && lon <= REGION.bbox[2] && lat >= REGION.bbox[1] && lat <= REGION.bbox[3]);
+
+/** Index des lieux par nom (en minuscules), pour trouver vite un doublon tout proche. */
+function indexParNom(liste) {
+  const index = new Map();
+  for (const l of liste) {
+    if (!l.nom) continue;
+    const cle = l.nom.toLowerCase();
+    if (!index.has(cle)) index.set(cle, []);
+    index.get(cle).push(l);
+  }
+  return index;
+}
+const procheDuMeme = (index, x) => (index.get(x.nom.toLowerCase()) ?? []).find((l) => distanceKm(l, x) < 0.5);
 
 /** Les lieux notables (Wikidata) et villages labellisés de la zone rejoignent « À découvrir ». */
 function lieuxNotables() {
@@ -330,39 +470,49 @@ function lieuxNotables() {
 // ---------- Assemblage ----------
 
 fs.mkdirSync(SORTIE, { recursive: true });
-const voies = await lireRoutes();
-const graphe = construireGraphe(voies);
+const graphe = await construireGraphe();
+// Composantes et réseau principal calculés ici, une fois : le téléphone n'a plus qu'à les lire.
+Object.assign(graphe, (({ composante, principal }) => ({ composante, principal }))(chargerGraphe(graphe)));
 const { lieux, communes } = await lireLieux();
 const notables = lieuxNotables();
 // Un lieu notable déjà présent dans OSM (même nom à moins de 500 m) n'est pas doublé.
 const tous = [...lieux];
-for (const n of notables)
-  if (!lieux.some((l) => l.nom && l.nom.toLowerCase() === n.nom.toLowerCase() && distanceKm(l, n) < 0.5)) tous.push(n);
+const parNomOSM = indexParNom(lieux);
+for (const n of notables) if (!procheDuMeme(parNomOSM, n)) tous.push(n);
 
 // Activités (randonnée, via ferrata, escalade, canoë, baignade) et patrimoine mondial UNESCO.
 const { activites, unesco } = await lireActivites(BRUT, REGION.bbox);
 const dejaLa = new Set(tous.map((l) => l.id));
 for (const a of activites) if (!dejaLa.has(a.id)) tous.push(a);
-for (const bien of unesco) {
-  const meme = tous.find((l) => l.id === bien.id || (l.nom && l.nom.toLowerCase() === bien.nom.toLowerCase() && distanceKm(l, bien) < 0.5));
+const parId = new Map(tous.map((l) => [l.id, l]));
+const parNom = indexParNom(tous);
+for (const bien of unesco.filter(dansRegion)) {
+  const meme = parId.get(bien.id) ?? procheDuMeme(parNom, bien);
   if (meme) meme.unesco = true;
   // Les biens très étendus (paysages, chemins, canal entier) n'ont pas de point où s'arrêter.
   else if (!/paysage|chemins? de|canal du midi$|^canal |^(cévennes|causses?)$/i.test(bien.nom))
     tous.push({ ...bien, categorie: 'decouvrir', type: 'Patrimoine mondial UNESCO', unesco: true, source: 'wikidata' });
 }
 
-const fichierOSM = new URL('languedoc-roussillon.osm.pbf', BRUT);
+const fichierOSM = new URL(REGION.source, BRUT);
 const enteteOSM = JSON.parse(execFileSync('osmium', ['fileinfo', '-j', fichierOSM.pathname], { encoding: 'utf8' }));
 const dateDonnees = enteteOSM.header.option.timestamp.slice(0, 10);
-fs.writeFileSync(new URL('graphe.json', SORTIE), JSON.stringify({ classes: CLASSES, ...graphe }));
-fs.writeFileSync(new URL('lieux.json', SORTIE), JSON.stringify({ lieux: tous, communes }));
-fs.copyFileSync(new URL('lozere.pmtiles', BRUT), new URL('carte.pmtiles', SORTIE));
+ecrireGrapheBinaire(new URL('graphe.bin', SORTIE), graphe);
+// Allégé pour le téléphone : sans les champs par défaut (source OSM, info non vérifiée), et pour
+// la France, sans les 230 000 hameaux dans la recherche (villages, villes et bourgs suffisent).
+const leger = (l) => {
+  const { source, verifie, payant, ...reste } = l;
+  return { ...reste, ...(source !== 'osm' ? { source } : {}), ...(verifie ? { verifie } : {}) };
+};
+const communesGardees = communes.filter((c) => dansRegion(c) && (REGION.id !== 'france' || ['city', 'town', 'village'].includes(c.type)));
+fs.writeFileSync(new URL('lieux.json', SORTIE), JSON.stringify({ lieux: tous.filter(dansRegion).map(leger), communes: communesGardees }));
+fs.copyFileSync(new URL(REGION.carte, BRUT), new URL('carte.pmtiles', SORTIE));
 const taille = (f) => fs.statSync(new URL(f, SORTIE)).size;
 const meta = {
   ...REGION,
   version: dateDonnees,
   donnees: `OpenStreetMap (© contributeurs, ODbL) au ${dateDonnees}, Wikidata (CC0), carte Protomaps`,
-  fichiers: Object.fromEntries(['carte.pmtiles', 'graphe.json', 'lieux.json'].map((f) => [f, taille(f)])),
+  fichiers: Object.fromEntries(['carte.pmtiles', 'graphe.bin', 'lieux.json'].map((f) => [f, taille(f)])),
 };
 fs.writeFileSync(new URL('meta.json', SORTIE), JSON.stringify(meta, null, 1));
 

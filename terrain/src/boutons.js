@@ -2,7 +2,7 @@
 // Chaque suggestion dit ce qu'elle coûte (détour) et ce qu'elle change à la journée (arrivée, nuit).
 import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire } from '../../commun/routeur.js';
-import { preparerRoute, situer } from '../../server/itineraire.js';
+import { preparerRoute, rectangle, situer } from '../../server/itineraire.js';
 import { NUITS, aMonNiveau, dureeVisite, interet, plaitA } from './parcours.js';
 import { coucherSoleil } from './soleil.js';
 
@@ -65,10 +65,13 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
     if (bouton === 'dormir') return typesNuit.length === 0 || typesNuit.includes(l.type);
     return true;
   };
+  // D'abord le rectangle du trajet restant (+ marge) : à l'échelle de la France, situer chaque lieu serait trop long.
+  const ecartMax = bouton === 'dormir' ? 12 : 6;
+  const dedans = rectangle(route.coords, ecartMax);
   const proches = pack.lieux
-    .filter(voulu)
+    .filter((l) => dedans(l) && voulu(l))
     .map((l) => ({ l, sit: situer(route, l) }))
-    .filter(({ sit }) => sit.ecart <= (bouton === 'dormir' ? 12 : 6))
+    .filter(({ sit }) => sit.ecart <= ecartMax)
     .sort((a, b) => a.sit.ecart - b.sit.ecart)
     .slice(0, 80)
     .map(({ l }) => l);
@@ -79,7 +82,7 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
   const resteMin = direct ? direct.secondes / 60 : 0;
   const coucher = coucherSoleil(jour.date, cible);
 
-  const avecDetours = detours(pack.graphe, position, cible, proches, options).map((s) => {
+  const avecDetours = detours(pack.graphe, position, cible, proches, { ...options, detourMaxSec: (regle.detourMax + 10) * 60 }).map((s) => {
     const detourMin = (s.detourSec + s.marcheSec) / 60;
     const arretMin = bouton === 'decouvrir' ? dureeVisite(s) : regle.arretMin ?? 0;
     const atteindreMin = s.atteindreSec / 60;

@@ -3,7 +3,7 @@
 // vrais temps de route (commun/routeur.js), nuits avant la tombée du jour.
 import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire, itineraireMulti } from '../../commun/routeur.js';
-import { cleOrdre, decouperJours, preparerRoute, selectionner, situer } from '../../server/itineraire.js';
+import { cleOrdre, decouperJours, preparerRoute, rectangle, selectionner, situer } from '../../server/itineraire.js';
 import { ajouterJours } from './outils.js';
 import { coucherSoleil } from './soleil.js';
 
@@ -113,14 +113,28 @@ const resume = (l) => ({ notoriete: l.notoriete, classe: l.classe, id: l.id, nom
 /** « Surprends-moi » : le coin le plus riche en lieux remarquables à bonne distance. */
 function choisirCoin(lieux, depart, porteeKm, favoris = new Set()) {
   // Les lieux gardés « pour plus tard » attirent le voyage vers leur coin.
-  const remarquables = lieux.filter((l) => favoris.has(l.id) || (l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5));
+  // Seulement ceux à portée, rangés dans une grille de ~15 km : on ne compare que les voisins.
+  const remarquables = lieux.filter(
+    (l) => (favoris.has(l.id) || (l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5)) && distanceKm(depart, l) <= porteeKm + 15,
+  );
+  const grille = new Map();
+  const cle = (i, j) => `${i}:${j}`;
+  for (const l of remarquables) {
+    const k = cle(Math.floor(l.lat / 0.15), Math.floor(l.lon / 0.2));
+    if (!grille.has(k)) grille.set(k, []);
+    grille.get(k).push(l);
+  }
+  const voisins = (l) => {
+    const [i, j] = [Math.floor(l.lat / 0.15), Math.floor(l.lon / 0.2)];
+    return [-1, 0, 1].flatMap((di) => [-1, 0, 1].flatMap((dj) => grille.get(cle(i + di, j + dj)) ?? []));
+  };
   let meilleur = null;
   let meilleurScore = -Infinity;
   for (const l of remarquables) {
     const d = distanceKm(depart, l);
     if (d < porteeKm * 0.25 || d > porteeKm) continue;
     let score = (Math.random() - 0.5) * 2;
-    for (const autre of remarquables) if (distanceKm(l, autre) < 15) score += favoris.has(autre.id) ? 6 : interet(autre);
+    for (const autre of voisins(l)) if (distanceKm(l, autre) < 15) score += favoris.has(autre.id) ? 6 : interet(autre);
     if (score > meilleurScore) {
       meilleurScore = score;
       meilleur = l;
@@ -153,7 +167,7 @@ export function choisirNuit(pack, pres, types, exclus = new Set()) {
     .flatMap((n) => n.types);
   const proches = (liste) =>
     liste
-      .filter((l) => l.categorie === 'dormir' && l.nom && !exclus.has(l.id))
+      .filter((l) => l.categorie === 'dormir' && l.nom && !exclus.has(l.id) && Math.abs(l.lat - pres.lat) < 0.2 && Math.abs(l.lon - pres.lon) < 0.3)
       .map((l) => ({ l, d: distanceKm(pres, l) }))
       .filter((x) => x.d < 20)
       .sort((a, b) => a.d - b.d)
@@ -234,12 +248,15 @@ export function planifier(pack, p) {
   const largeur = Math.min(25, Math.max(7, (budgetKm - (base?.metres ?? 0) / 1000) / (4 * Math.max(1, nbJours))));
   const ctx = { route, depart: p.depart, centre: cible, rayonCoin, largeur, boucle };
   const exclus = new Set(p.exclus ?? []);
+  // À l'échelle de la France, on ne regarde que le rectangle du trajet (avec la marge du couloir).
+  const dansZone = rectangle([...route.coords, [cible.lon, cible.lat]], Math.max(largeur * 2, rayonCoin) + 2);
 
   const candidats = [];
   // Lieux remarquables du trajet qui ne répondent pas aux envies : proposés seulement en alternative.
   const autres = [];
   const favorisAPortee = [];
   for (const l of pack.lieux) {
+    if (!dansZone(l)) continue;
     // Un lieu gardé « pour plus tard » passe avant les envies et le niveau, s'il est à portée (couloir élargi).
     if (favoris.has(l.id)) {
       const position = !exclus.has(l.id) && cleOrdre(l, { ...ctx, largeur: largeur * 2 });
@@ -312,11 +329,12 @@ export function planifier(pack, p) {
   const alternatives = [];
   if (p.envies.length && choisis.length < nbEtapes) {
     const pris = new Set(choisis.map((c) => c.id));
+    const dansCouloir40 = rectangle([...route.coords, [cible.lon, cible.lat]], 41);
     for (const envie of p.envies) {
       if (choisis.some((c) => enviesDe(c, [envie]).length)) continue;
       const plusLoin = pack.lieux
         // Pas les grands espaces (parc national, massif…) : il faut un endroit où s'arrêter.
-        .filter((l) => l.nom && !pris.has(l.id) && !exclus.has(l.id) && enviesDe(l, [envie]).length && !/parc (national|naturel)|massif|réserve/i.test(`${l.nom} ${l.type}`))
+        .filter((l) => dansCouloir40(l) && l.nom && !pris.has(l.id) && !exclus.has(l.id) && enviesDe(l, [envie]).length && !/parc (national|naturel)|massif|réserve/i.test(`${l.nom} ${l.type}`))
         .map((l) => ({ l, sit: situer(route, l) }))
         .filter(({ sit }) => sit.ecart > largeur && sit.ecart <= 40)
         .sort((a, b) => a.sit.ecart - b.sit.ecart)
