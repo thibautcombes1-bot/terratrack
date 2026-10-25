@@ -75,6 +75,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
       carte.addSource('suggestions', { type: 'geojson', data: vide });
       carte.addSource('position', { type: 'geojson', data: vide });
       carte.addSource('deja', { type: 'geojson', data: vide });
+      carte.addSource('decouverte', { type: 'geojson', data: vide });
       carte.addLayer({
         id: 'parcours-bord',
         type: 'line',
@@ -99,6 +100,34 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         source: 'deja',
         layout: { 'text-field': '✓', 'text-font': ['Noto Sans Medium'], 'text-size': 13, 'text-allow-overlap': true },
         paint: { 'text-color': '#8a8f86', 'text-halo-color': '#ffffff', 'text-halo-width': 2 },
+      });
+      // Lieux à découvrir cochés dans l'onglet Carte ; ceux gardés « pour plus tard » cerclés de noir.
+      carte.addLayer({
+        id: 'decouverte',
+        type: 'circle',
+        source: 'decouverte',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, ['case', ['get', 'favori'], 7, 5], 13, ['case', ['get', 'favori'], 11, 9]],
+          'circle-color': ['get', 'couleur'],
+          'circle-stroke-color': ['case', ['get', 'favori'], '#1d2a20', '#ffffff'],
+          'circle-stroke-width': ['case', ['get', 'favori'], 2.5, 1.5],
+        },
+      });
+      carte.addLayer({
+        id: 'decouverte-noms',
+        type: 'symbol',
+        source: 'decouverte',
+        minzoom: 11,
+        layout: {
+          'text-field': ['get', 'nom'],
+          'text-font': ['Noto Sans Medium'],
+          'text-size': 11,
+          'text-offset': [0, 1],
+          'text-anchor': 'top',
+          'text-max-width': 9,
+          'text-optional': true,
+        },
+        paint: { 'text-color': '#1d2a20', 'text-halo-color': '#ffffff', 'text-halo-width': 1.4 },
       });
       carte.addLayer({
         id: 'arrets',
@@ -211,6 +240,22 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
     surClicEtape(rappel) {
       carte.on('click', 'arrets', (ev) => {
         const f = ev.features.find((x) => x.properties.genre === 'etape');
+        if (f) rappel(f.properties.id);
+      });
+    },
+    afficherDecouverte(liste) {
+      donnees('decouverte', {
+        type: 'FeatureCollection',
+        features: liste.map((l) => point(l, { id: l.id, nom: l.nom ?? '', couleur: l.couleur, favori: Boolean(l.favori) })),
+      });
+    },
+    /** Toucher un lieu à découvrir : une marge de 14 px, car les points sont petits sous le doigt. */
+    surClicDecouverte(rappel) {
+      carte.on('click', (ev) => {
+        const { x, y } = ev.point;
+        const zone = [[x - 14, y - 14], [x + 14, y + 14]];
+        if (carte.queryRenderedFeatures(ev.point, { layers: ['arrets', 'suggestions'] }).length) return;
+        const [f] = carte.queryRenderedFeatures(zone, { layers: ['decouverte'] });
         if (f) rappel(f.properties.id);
       });
     },

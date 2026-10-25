@@ -21,6 +21,8 @@ import {
   dormirIci,
   planifier,
   prolongerEtape,
+  interet,
+  plaitA,
   supprimerEtape,
   totaux,
 } from './parcours.js';
@@ -90,7 +92,9 @@ const hauteur = () => (tiroir.classList.contains('reduit') ? 0 : tiroir.classLis
 function regler(n) {
   tiroir.classList.toggle('reduit', n === 0);
   tiroir.classList.toggle('grand', n === 2);
+  tiroir.classList.remove('compact');
 }
+let ongletCourant = 'parcours';
 // Glisser la poignée ou les onglets : vers le bas pour libérer la carte, vers le haut pour lire.
 let departY = null;
 for (const zone of [$('#poignee'), document.querySelector('.onglets')]) {
@@ -107,14 +111,18 @@ carte.carte.on('dragstart', () => regler(0));
 $('#poignee').addEventListener('click', () => {
   regler(hauteur() === 0 ? 1 : 0);
 });
-// Trois onglets : Historique, Parcours, Plus tard. « Parcours » se divise en Préparer, Parcours, En route.
+// Onglets : Carte (les lieux à cocher dessus), Parcours (Préparer, Parcours, En route), Plus tard ;
+// et l'icône Historique sur la carte.
 let vue = 'preparer';
 function ouvrirOnglet(onglet, sousVue) {
-  if (tiroir.classList.contains('reduit')) tiroir.classList.remove('reduit');
+  regler(1);
+  // Sur la Carte, le tiroir reste bas : juste les cases à cocher.
+  tiroir.classList.toggle('compact', onglet === 'carte');
   // Les vues de « Parcours » s'ouvrent aussi directement par leur nom.
   if (['preparer', 'route'].includes(onglet)) [onglet, sousVue] = ['parcours', onglet];
   if (sousVue) vue = sousVue;
-  const nom = onglet === 'parcours' ? vue : onglet;
+  const nom = onglet === 'parcours' ? vue : onglet === 'carte' ? 'carte-vue' : onglet;
+  ongletCourant = onglet;
   for (const b of document.querySelectorAll('[data-onglet]')) b.setAttribute('aria-selected', String(b.dataset.onglet === onglet));
   for (const b of document.querySelectorAll('[data-vue]')) b.setAttribute('aria-selected', String(b.dataset.vue === vue));
   $('#sous-onglets').hidden = onglet !== 'parcours';
@@ -132,10 +140,19 @@ function ouvrirOnglet(onglet, sousVue) {
   if (nom === 'preparer') majInfoPlusTard();
   if (nom === 'historique') rendreHistorique();
   if (nom === 'plus-tard') rendrePlusTard();
+  if (nom === 'carte-vue') rendreCouches();
+  else carte.afficherDecouverte([]);
 }
-const PANNEAUX = ['preparer', 'parcours', 'route', 'historique', 'plus-tard'];
+const PANNEAUX = ['preparer', 'parcours', 'route', 'carte-vue', 'historique', 'plus-tard'];
 const ongletOuvert = () => PANNEAUX.find((id) => !$(`#${id}`).hidden);
-for (const b of document.querySelectorAll('[data-onglet]')) b.addEventListener('click', () => ouvrirOnglet(b.dataset.onglet));
+// Toucher une seconde fois : l'icône Historique ramène au parcours, « Carte » baisse le tiroir.
+for (const b of document.querySelectorAll('[data-onglet]'))
+  b.addEventListener('click', () => {
+    const deja = b.getAttribute('aria-selected') === 'true';
+    if (deja && b.dataset.onglet === 'historique') return ouvrirOnglet('parcours');
+    if (deja && b.dataset.onglet === 'carte' && hauteur() !== 0) return regler(0);
+    ouvrirOnglet(b.dataset.onglet);
+  });
 for (const b of document.querySelectorAll('[data-vue]')) b.addEventListener('click', () => ouvrirOnglet('parcours', b.dataset.vue));
 
 // ---------- Préparer ----------
@@ -815,20 +832,21 @@ const allerA = (l) => [
   ],
 ];
 /** Ce qui ne regarde que moi : favori, souvenirs, note, déjà visité. */
-function pourMoi(l, { dejaVu, autres = [] } = {}) {
+const actionPlusTard = (l) => ({
+  texte: estPourPlusTard(l.id) ? '⭐ Retirer de « Plus tard »' : '☆ Garder pour plus tard',
+  faire: () => {
+    const garde = basculerPlusTard(l);
+    afficherToast(garde ? `⭐ ${nomDe(l)} gardé pour un prochain road trip.` : `${nomDe(l)} retiré de « Plus tard ».`);
+    majInfoPlusTard();
+    rafraichir();
+  },
+});
+function pourMoi(l, { dejaVu, autres = [], sansPlusTard = false } = {}) {
   const photos = souvenirDe(l.id)?.photos;
   return [
     'Pour moi',
     [
-      {
-        texte: estPourPlusTard(l.id) ? '⭐ Retirer de « Plus tard »' : '☆ Garder pour plus tard',
-        faire: () => {
-          const garde = basculerPlusTard(l);
-          afficherToast(garde ? `⭐ ${nomDe(l)} gardé pour un prochain road trip.` : `${nomDe(l)} retiré de « Plus tard ».`);
-          majInfoPlusTard();
-          rafraichir();
-        },
-      },
+      ...(sansPlusTard ? [] : [actionPlusTard(l)]),
       { texte: `📷 Photos et commentaire${photos ? ` (${photos})` : ''}`, faire: () => ouvrirSouvenirs(l) },
       { texte: '★ Noter (sur place)', faire: () => ouvrirNotation(l) },
       ...(dejaVu ? [{ texte: '✓ Déjà visité', faire: dejaVu }] : []),
@@ -866,18 +884,24 @@ function menuEtape(j, k) {
 
 const dialogueMenu = $('#menu-lieu');
 let actionsMenu = [];
+/** Ouvre le menu d'un lieu ; `detail` (fiche) et `principal` (gros bouton) sont facultatifs. */
+function ouvrirMenu(l, groupes, { detail = '', principal } = {}) {
+  const liste = groupes().filter(([, actions]) => actions.length);
+  actionsMenu = [...(principal ? [principal] : []), ...liste.flatMap(([, actions]) => actions)];
+  let n = principal ? 1 : 0;
+  $('#menu-nom').innerHTML = `${h(nomDe(l))}${badgeNiveau(l)}`;
+  $('#menu-detail').innerHTML = detail;
+  $('#menu-groupes').innerHTML =
+    (principal ? `<button type="button" class="principal" data-a="0">${h(principal.texte)}</button>` : '') +
+    liste
+      .map(([titre, actions]) => `<div class="titre">${h(titre)}</div><div class="menu-liste">${actions.map((a) => `<button type="button" data-a="${n++}">${h(a.texte)}</button>`).join('')}</div>`)
+      .join('');
+  dialogueMenu.showModal();
+}
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-menu]');
   const m = b && menus.get(b.dataset.menu);
-  if (!m) return;
-  const groupes = m.groupes().filter(([, actions]) => actions.length);
-  actionsMenu = groupes.flatMap(([, actions]) => actions);
-  let n = 0;
-  $('#menu-nom').textContent = nomDe(m.l);
-  $('#menu-groupes').innerHTML = groupes
-    .map(([titre, actions]) => `<div class="titre">${h(titre)}</div><div class="menu-liste">${actions.map((a) => `<button type="button" data-a="${n++}">${h(a.texte)}</button>`).join('')}</div>`)
-    .join('');
-  dialogueMenu.showModal();
+  if (m) ouvrirMenu(m.l, m.groupes);
 });
 $('#menu-groupes').addEventListener('click', (ev) => {
   const a = actionsMenu[Number(ev.target.closest('[data-a]')?.dataset.a)];
@@ -901,6 +925,7 @@ function rafraichir() {
   if (onglet === 'route' && dernieresSuggestions.length) rendreSuggestions(dernieresSuggestions, dernierResteMin);
   if (onglet === 'historique') rendreHistorique();
   if (onglet === 'plus-tard') rendrePlusTard();
+  if (onglet === 'carte-vue') majDecouverte();
 }
 
 /** Ajoute le lieu au jour du parcours dont le tracé passe le plus près. */
@@ -1136,7 +1161,97 @@ function rendrePlusTard() {
 }
 $('#plus-tard').addEventListener('click', (ev) => {
   if (ev.target.id === 'pt-preparer') ouvrirOnglet('preparer');
-  if (ev.target.id === 'pt-carte') carte.cadrer(lieuxPourPlusTard().map((l) => [l.lon, l.lat]), 70);
+  if (ev.target.id === 'pt-carte') {
+    couchesCochees.add('plusTard');
+    memoire.ecrire('couches', [...couchesCochees]);
+    ouvrirOnglet('carte');
+    carte.cadrer(lieuxPourPlusTard().map((l) => [l.lon, l.lat]), 70);
+  }
+});
+
+// ---------- Carte : cocher les lieux à voir dessus, les découvrir, les garder pour plus tard ----------
+
+const dansDecouvrir = (l) => l.nom && l.categorie === 'decouvrir' && !l.activite;
+const COUCHES = {
+  plusTard: { nom: 'Plus tard', couleur: '#ffd400', test: (l) => estPourPlusTard(l.id) },
+  viaferrata: { nom: 'Via ferrata', couleur: '#c0392b', test: (l) => l.activite === 'viaferrata' },
+  randonnee: { nom: 'Randonnée', couleur: '#2f7d4a', test: (l) => l.activite === 'randonnee' },
+  escalade: { nom: 'Escalade', couleur: '#8e44ad', test: (l) => l.activite === 'escalade' },
+  canoe: { nom: 'Canoë-kayak', couleur: '#1f6fb2', test: (l) => l.activite === 'canoe' },
+  baignade: { nom: 'Baignade', couleur: '#22a6c7', test: (l) => l.activite === 'baignade' },
+  unesco: { nom: 'UNESCO', couleur: '#b8860b', test: (l) => l.unesco },
+  patrimoine: { nom: 'Patrimoine', couleur: '#8d6e63', test: (l) => dansDecouvrir(l) && plaitA(l, ['patrimoine']) },
+  panoramas: { nom: 'Panoramas', couleur: '#e67e22', test: (l) => dansDecouvrir(l) && plaitA(l, ['panoramas']) },
+  nature: { nom: 'Nature et grottes', couleur: '#7cb342', test: (l) => dansDecouvrir(l) && plaitA(l, ['nature']) },
+  villages: { nom: 'Villages', couleur: '#d81b60', test: (l) => dansDecouvrir(l) && plaitA(l, ['villages']) },
+  manger: { nom: 'Manger', couleur: '#455a64', test: (l) => l.nom && l.categorie === 'manger' },
+  dormir: { nom: 'Dormir', couleur: '#3b3f8f', test: (l) => l.nom && l.categorie === 'dormir' },
+  eau: { nom: 'Eau potable', couleur: '#00897b', test: (l) => l.type === 'Eau potable' },
+};
+// Les listes sont faites une fois ; « Plus tard » change, on la relit à chaque fois.
+const parCouche = Object.fromEntries(Object.entries(COUCHES).filter(([k]) => k !== 'plusTard').map(([k, c]) => [k, pack.lieux.filter(c.test)]));
+const couchesCochees = new Set(memoire.lire('couches', ['plusTard']));
+const POINTS_MAX = 400;
+
+function rendreCouches() {
+  $('#couches').innerHTML = Object.entries(COUCHES)
+    .map(([k, c]) => `<button type="button" class="puce" data-couche="${k}" aria-pressed="${couchesCochees.has(k)}"><span class="point-couleur" style="background:${c.couleur}"></span>${h(c.nom)}</button>`)
+    .join('');
+  majDecouverte();
+}
+
+/** Les points des cases cochées, dans la partie visible de la carte (les plus remarquables d'abord). */
+function majDecouverte() {
+  if (ongletCourant !== 'carte') return;
+  const bornes = carte.carte.getBounds();
+  const vus = new Map();
+  for (const k of Object.keys(COUCHES)) {
+    if (!couchesCochees.has(k)) continue;
+    const liste = k === 'plusTard' ? lieuxPourPlusTard().map((f) => lieuParId.get(f.id) ?? f) : parCouche[k];
+    for (const l of liste)
+      if (!vus.has(l.id) && bornes.contains([l.lon, l.lat])) vus.set(l.id, { ...l, couleur: COUCHES[k].couleur, favori: estPourPlusTard(l.id) });
+  }
+  const tous = [...vus.values()].sort((a, b) => b.favori - a.favori || interet(b) - interet(a));
+  const montres = tous.slice(0, POINTS_MAX);
+  carte.afficherDecouverte(montres);
+  $('#couches-compte').textContent = !couchesCochees.size
+    ? 'Rien de coché.'
+    : tous.length > montres.length
+      ? `${montres.length} lieux affichés sur ${tous.length} ici, les plus remarquables : zoome pour voir les autres.`
+      : `${tous.length} lieu(x) dans cette partie de la carte.`;
+}
+$('#couches').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-couche]');
+  if (!b) return;
+  const k = b.dataset.couche;
+  if (couchesCochees.has(k)) couchesCochees.delete(k);
+  else couchesCochees.add(k);
+  memoire.ecrire('couches', [...couchesCochees]);
+  b.setAttribute('aria-pressed', String(couchesCochees.has(k)));
+  majDecouverte();
+});
+carte.carte.on('moveend', majDecouverte);
+
+/** Toucher un point : sa fiche, avec « Garder pour plus tard » en grand. */
+carte.surClicDecouverte((id) => {
+  const l = lieuParId.get(id) ?? lieuxPourPlusTard().find((f) => f.id === id);
+  if (!l) return;
+  const lignes = [
+    [l.nom ? l.type : '', l.niveauTexte].filter(Boolean).join(' · '),
+    l.details?.join(' · '),
+  ].filter(Boolean);
+  ouvrirMenu(
+    l,
+    () => [
+      allerA(l),
+      ['Le parcours', plan ? [{ texte: '+ Ajouter à mon parcours', faire: () => ajouterAuParcours(l) }] : []],
+      pourMoi(l, { sansPlusTard: true, dejaVu: () => { marquerDejaVu(l); majDecouverte(); } }),
+    ],
+    {
+      detail: `${lignes.map((t) => `<small class="info">${h(t)}</small>`).join('')}${l.description ? `<small class="description">${h(l.description)}</small>` : ''}${infoDatee(l)}${texteNote(l.id)}${texteSouvenir(l.id)}${dejaVus.has(l.id) ? '<small class="info">✓ déjà visité</small>' : ''}`,
+      principal: actionPlusTard(l),
+    },
+  );
 });
 
 // ---------- Au démarrage : reprendre le dernier parcours ----------

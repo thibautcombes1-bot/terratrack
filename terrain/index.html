@@ -21,9 +21,17 @@
     </header>
 
     <section class="tiroir" id="tiroir">
+      <!-- Historique : une icône en bas à gauche de la carte, qui suit le haut du tiroir -->
+      <button class="rond" data-onglet="historique" aria-selected="false" aria-label="Historique" title="Historique">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+          <path d="M3 3v5h5" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+      </button>
       <button class="poignee" id="poignee" aria-label="Agrandir ou réduire"></button>
       <nav class="onglets" role="tablist">
-        <button data-onglet="historique" aria-selected="false">Historique</button>
+        <button data-onglet="carte" aria-selected="false">Carte</button>
         <button data-onglet="parcours" aria-selected="true">Parcours</button>
         <button data-onglet="plus-tard" aria-selected="false">Plus tard</button>
       </nav>
@@ -99,6 +107,13 @@
           <div id="suggestions"></div>
         </div>
 
+        <!-- Carte : ce qu'on veut voir dessus -->
+        <div id="carte-vue" class="panneau" hidden>
+          <p class="info">Coche ce que tu veux voir sur la carte, puis touche un point pour le découvrir.</p>
+          <div class="ligne" id="couches"></div>
+          <p class="info" id="couches-compte"></p>
+        </div>
+
         <!-- Voyages faits et lieux déjà faits -->
         <div id="historique" class="panneau" hidden></div>
 
@@ -123,6 +138,7 @@
     <dialog id="menu-lieu">
       <form method="dialog">
         <div class="nom" id="menu-nom"></div>
+        <div id="menu-detail"></div>
         <div id="menu-groupes"></div>
         <button class="secondaire large" value="fermer">Fermer</button>
       </form>

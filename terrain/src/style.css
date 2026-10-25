@@ -123,6 +123,15 @@ button {
   height: 88vh;
 }
 
+/* Onglet Carte : juste les cases à cocher, la carte garde la place. */
+.tiroir.compact {
+  height: calc(320px + env(safe-area-inset-bottom));
+}
+
+.tiroir.compact .limites {
+  display: none;
+}
+
 .poignee {
   align-self: center;
   width: 48px;
@@ -531,6 +540,12 @@ input:focus {
   .haut {
     left: 444px;
   }
+
+  /* Sur grand écran, le tiroir prend toute la hauteur : l'icône se met à côté, en bas. */
+  .tiroir .rond {
+    left: calc(100% + 12px);
+    bottom: 0;
+  }
 }
 
 /* Sous la barre d’état de l’iPhone. */
@@ -892,4 +907,49 @@ dialog#menu-lieu::backdrop {
 
 .menu-liste button:first-child {
   border-top: 0;
+}
+
+/* Icône Historique, posée sur la carte au-dessus du tiroir, à gauche. */
+.tiroir .rond {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% + 12px);
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--carte-fond);
+  color: var(--encre);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.tiroir .rond[aria-selected='true'] {
+  background: var(--vert);
+  color: #fff;
+}
+
+/* Cases de l'onglet Carte : la pastille a la couleur des points. */
+.point-couleur {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 0;
+}
+
+.puce[aria-pressed='false'] .point-couleur {
+  opacity: 0.45;
+}
+
+/* Fiche d'un lieu touché sur la carte. */
+#menu-detail small {
+  display: block;
+  margin-top: 2px;
+}
+
+#menu-groupes > .principal {
+  margin: 12px 0 2px;
 }
