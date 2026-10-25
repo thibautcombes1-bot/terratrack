@@ -3,6 +3,7 @@
 // À l'échelle de la France (millions de carrefours), tout est en tableaux typés :
 // pas de liste d'objets, et les tampons de recherche sont réutilisés d'un calcul à l'autre.
 import { distanceKm } from './geo.js';
+import { facteurRoute } from './carburant.js';
 
 const TYPES = { Int32Array, Uint32Array, Uint8Array, Int8Array, Float32Array };
 
@@ -305,12 +306,23 @@ function tampons(g) {
  * A* de `source` à `cible` : comme Dijkstra, mais guidé vers la cible (vol d'oiseau à 110 km/h),
  * il n'explore qu'un fuseau autour du trajet. Renvoie les arcs du chemin (CSR « avant »), ou null.
  */
-function aEtoile(g, source, cible, { eviterPeages = false } = {}) {
+function aEtoile(g, source, cible, { eviterPeages = false, economie = false } = {}) {
   const { cout, precedent, marque, generation } = tampons(g);
   const adj = g.avant;
   const latC = g.lat[cible];
   const lonC = g.lon[cible];
-  const estimation = (v) => volOiseau(g, v, latC, lonC);
+  // Économe : on compte les km « équivalents carburant » (autoroute +20 %, lacets +15 %),
+  // plus un peu de temps (1 h = 15 km) pour ne pas finir sur des chemins interminables.
+  // L'estimation reste en dessous du vrai coût : 0,95 km par km à vol d'oiseau, au mieux à 110 km/h.
+  const estimation = economie
+    ? (v) => (volOiseau(g, v, latC, lonC) / SECONDES_PAR_KM) * (0.95 + 15 / 110) * 0.99
+    : (v) => volOiseau(g, v, latC, lonC);
+  const prix = economie
+    ? (k) => {
+        const e = adj.arete[k];
+        return (g.aretes.m[e] / 1000) * facteurRoute(g.aretes.v[e]) + (adj.temps[k] / 3600) * 15;
+      }
+    : (k) => adj.temps[k];
   const tas = new Tas();
   cout[source] = 0;
   precedent[source] = -1;
@@ -325,7 +337,7 @@ function aEtoile(g, source, cible, { eviterPeages = false } = {}) {
     if (u === cible) break;
     for (let k = adj.debut[u]; k < adj.debut[u + 1]; k++) {
       const v = adj.cible[k];
-      const c = cu + (eviterPeages && g.aretes.p[adj.arete[k]] ? adj.temps[k] * PENALITE_PEAGE : adj.temps[k]);
+      const c = cu + (eviterPeages && g.aretes.p[adj.arete[k]] ? prix(k) * PENALITE_PEAGE : prix(k));
       if (marque[v] !== generation || c < cout[v]) {
         marque[v] = generation;
         cout[v] = c;
@@ -357,16 +369,17 @@ function pointsArete(g, e, sens) {
  * Itinéraire entre deux points : durée, distance, péage, routes empruntées, tracé.
  * @returns {null | { secondes, metres, peage, routes: string[], coords: number[][] }}
  */
-export function itineraire(g, de, vers, { eviterPeages = false } = {}) {
+export function itineraire(g, de, vers, { eviterPeages = false, economie = false } = {}) {
   const s = plusProcheSommet(g, de);
   const c = plusProcheSommet(g, vers);
   if (s < 0 || c < 0) return null;
-  if (s === c) return { secondes: 0, metres: 0, peage: false, routes: [], coords: [[g.lon[s], g.lat[s]]], vitesses: [] };
+  if (s === c) return { secondes: 0, metres: 0, metresPeage: 0, peage: false, routes: [], coords: [[g.lon[s], g.lat[s]]], vitesses: [] };
   // Pas de route entre la Corse et le continent (ni vers une île) : inutile de tout explorer.
   if (g.composante[s] !== g.composante[c]) return null;
-  const arcs = aEtoile(g, s, c, { eviterPeages });
+  const arcs = aEtoile(g, s, c, { eviterPeages, economie });
   if (!arcs) return null;
   let metres = 0;
+  let metresPeage = 0;
   let secondes = 0;
   let peage = false;
   const routes = [];
@@ -378,14 +391,17 @@ export function itineraire(g, de, vers, { eviterPeages = false } = {}) {
     metres += g.aretes.m[e];
     // Le vrai temps de route, sans la pénalité qui sert seulement à choisir le chemin.
     secondes += g.avant.temps[k];
-    if (g.aretes.p[e]) peage = true;
+    if (g.aretes.p[e]) {
+      peage = true;
+      metresPeage += g.aretes.m[e];
+    }
     const nom = g.noms[g.aretes.n[e]];
     if (nom && routes.at(-1) !== nom) routes.push(nom);
     const points = pointsArete(g, e, g.avant.sens[k]);
     coords.push(...(coords.length ? points.slice(1) : points));
     for (let i = 1; i < points.length; i++) vitesses.push(g.aretes.v[e]);
   }
-  return { secondes, metres, peage, routes, coords, vitesses };
+  return { secondes, metres, metresPeage, peage, routes, coords, vitesses };
 }
 
 /** Sommet de départ d'un arc (CSR « avant ») arrivant sur `v`. */
@@ -405,6 +421,7 @@ export function itineraireMulti(g, points, options = {}) {
   return {
     secondes: troncons.reduce((s, t) => s + t.secondes, 0),
     metres: troncons.reduce((s, t) => s + t.metres, 0),
+    metresPeage: troncons.reduce((s, t) => s + t.metresPeage, 0),
     peage: troncons.some((t) => t.peage),
     coords: troncons.flatMap((t, i) => (i ? t.coords.slice(1) : t.coords)),
     vitesses: troncons.flatMap((t) => t.vitesses),

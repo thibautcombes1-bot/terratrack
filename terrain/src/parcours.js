@@ -117,7 +117,7 @@ export function dureeVisite(l) {
 const resume = (l) => ({ notoriete: l.notoriete, classe: l.classe, id: l.id, nom: l.nom, type: l.type, activite: l.activite, unesco: l.unesco, longueurKm: l.longueurKm, niveau: l.niveau, niveauRang: l.niveauRang, niveauTexte: l.niveauTexte, details: l.details, dureeH: l.activite ? l.dureeH : undefined, lat: l.lat, lon: l.lon, labels: l.labels, categorie: l.categorie, horaires: l.horaires, date: l.date, verifie: l.verifie, tel: l.tel, site: l.site, prix: l.prix, prixLe: l.prixLe, h24: l.h24, carburants: l.carburants, idPrix: l.idPrix, adresse: l.adresse });
 
 /** « Surprends-moi » : le coin le plus riche en lieux remarquables à bonne distance. */
-function choisirCoin(lieux, depart, porteeKm, favoris = new Set()) {
+function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = null) {
   // Les lieux gardés « pour plus tard » attirent le voyage vers leur coin.
   // Seulement ceux à portée, rangés dans une grille de ~15 km : on ne compare que les voisins.
   const remarquables = lieux.filter(
@@ -141,6 +141,8 @@ function choisirCoin(lieux, depart, porteeKm, favoris = new Set()) {
     if (d < porteeKm * 0.25 || d > porteeKm) continue;
     let score = (Math.random() - 0.5) * 2;
     for (const autre of voisins(l)) if (distanceKm(l, autre) < 15) score += favoris.has(autre.id) ? 6 : interet(autre);
+    // « Beau temps » : là où il fera beau compte plus que tout le reste.
+    if (beauTemps) score *= beauTemps(l) ?? 1;
     if (score > meilleurScore) {
       meilleurScore = score;
       meilleur = l;
@@ -193,7 +195,7 @@ export function choisirNuit(pack, pres, types, exclus = new Set()) {
 export function recalculerJour(pack, jour, conduiteMaxH) {
   const g = pack.graphe;
   const points = [jour.debut, ...jour.etapes, jour.fin];
-  const options = { eviterPeages: Boolean(jour.eviterPeages) };
+  const options = { eviterPeages: Boolean(jour.eviterPeages), economie: Boolean(jour.economie) };
   const trajet = itineraireMulti(g, points, options);
   if (!trajet) {
     jour.alertes = ['Une étape est injoignable par la route depuis le parcours.'];
@@ -245,10 +247,10 @@ export function planifier(pack, p) {
   // Jusqu'où aller : selon les jours et le rythme, et pas plus loin que ce que permet le plein (mode « Avec mon plein »).
   const porteeKm = Math.min(p.porteeMaxKm ?? Infinity, rythme.conduiteH * 45 * Math.max(1, nbJours) * (boucle ? 0.35 : 0.8));
   const cible =
-    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris) ?? p.depart;
+    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris, p.beauTemps) ?? p.depart;
 
   const loin = distanceKm(p.depart, cible) > 1.5;
-  const base = loin ? itineraire(pack.graphe, p.depart, cible, { eviterPeages: Boolean(p.eviterPeages) }) : null;
+  const base = loin ? itineraire(pack.graphe, p.depart, cible, { eviterPeages: Boolean(p.eviterPeages), economie: Boolean(p.economie) }) : null;
   if (loin && !base) throw new Error('Pas de route trouvée vers cette destination dans la région.');
   const route = preparerRoute(base ? base.coords : [[p.depart.lon, p.depart.lat]]);
   const rayonCoin = p.mode === 'destination' ? 6 : Math.min(25, Math.max(8, porteeKm * 0.3));
@@ -287,7 +289,10 @@ export function planifier(pack, p) {
       continue;
     }
     // La météo prévue ce jour-là (si on l'a) : orage ou vent fort écartent via ferrata, escalade, canoë, rando.
-    const effetMeteo = p.meteo ? ajustementMeteo(l, p.meteo(l, ajouterJours(p.date, Math.min(nbJours - 1, Math.floor(position.cle * nbJours))))) : 0;
+    const jourDuLieu = ajouterJours(p.date, Math.min(nbJours - 1, Math.floor(position.cle * nbJours)));
+    const risquesDuLieu = p.meteo?.(l, jourDuLieu);
+    // Avec « Beau temps », la pluie retire des points à toutes les étapes, même à l'abri.
+    const effetMeteo = (p.meteo ? ajustementMeteo(l, risquesDuLieu) : 0) - (p.beauTemps && (risquesDuLieu?.pluie || risquesDuLieu?.orage) ? 1.5 : 0);
     if (effetMeteo === -Infinity) {
       ecartesMeteo.push(l);
       continue;
@@ -401,6 +406,7 @@ export function planifier(pack, p) {
       date: ajouterJours(p.date, i),
       heureDepart: i === 0 ? p.heure : 9 * 60,
       eviterPeages: Boolean(p.eviterPeages),
+      economie: Boolean(p.economie),
       debut,
       etapes: etapes.map((e) => ({ ...resume(e), cle: e.cle, score: e.score, visiteMin: dureeVisite(e), pourquoi: `${e.favori ? '⭐ De ta liste « Plus tard » · ' : ''}${justifier(e, p.envies)}` })),
       fin: finJour,
@@ -483,7 +489,7 @@ export function dormirIci(pack, plan, j, lieu) {
   jour.fin = { ...resume(lieu), genre: 'nuit' };
   const nuit = { nom: lieu.nom, lat: lieu.lat, lon: lieu.lon };
   if (j === plan.jours.length - 1) {
-    plan.jours.push({ date: ajouterJours(jour.date, 1), heureDepart: 9 * 60, eviterPeages: jour.eviterPeages, debut: nuit, etapes: reste, fin: ancienneFin });
+    plan.jours.push({ date: ajouterJours(jour.date, 1), heureDepart: 9 * 60, eviterPeages: jour.eviterPeages, economie: jour.economie, debut: nuit, etapes: reste, fin: ancienneFin });
   } else {
     const suivant = plan.jours[j + 1];
     suivant.debut = nuit;
@@ -678,4 +684,41 @@ export function nuitsGratuites(pack, pres, { rayonKm = 15, exclus = new Set(), n
     .sort((a, b) => a.d - b.d)
     .slice(0, nombre)
     .map(({ l, d }) => ({ ...resume(l), distanceKm: Math.round(d * 10) / 10 }));
+}
+
+/** Trois façons de faire le même voyage (mêmes étapes, mêmes nuits). */
+export const ITINERAIRES = [
+  { cle: 'rapide', nom: 'Le plus rapide', options: { eviterPeages: false, economie: false } },
+  { cle: 'sans-peage', nom: 'Sans péage', options: { eviterPeages: true, economie: false } },
+  { cle: 'econome', nom: 'Économe en carburant', options: { eviterPeages: true, economie: true } },
+];
+
+/** Pour chaque façon : km, temps de route, km à péage, km « équivalents carburant ». */
+export function comparerItineraires(pack, plan) {
+  return ITINERAIRES.map(({ cle, nom, options }) => {
+    let metres = 0;
+    let secondes = 0;
+    let metresPeage = 0;
+    let equivalents = 0;
+    for (const j of plan.jours) {
+      const t = itineraireMulti(pack.graphe, [j.debut, ...j.etapes, j.fin], options);
+      if (!t) return null;
+      metres += t.metres;
+      secondes += t.secondes;
+      metresPeage += t.metresPeage;
+      equivalents += profilConso(t.coords, t.vitesses).at(-1)?.[1] ?? 0;
+    }
+    return { cle, nom, options, metres, secondes, metresPeage, equivalents };
+  }).filter(Boolean);
+}
+
+/** Refait tout le voyage avec la façon choisie. */
+export function choisirItineraire(pack, plan, options) {
+  plan.params.eviterPeages = options.eviterPeages;
+  plan.params.economie = options.economie;
+  for (const j of plan.jours) {
+    j.eviterPeages = options.eviterPeages;
+    j.economie = options.economie;
+    recalculerJour(pack, j, conduiteMax(plan));
+  }
 }

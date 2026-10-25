@@ -51,6 +51,20 @@
               <ul class="propositions" hidden></ul>
             </div>
           </label>
+          <!-- Avec quoi ? Le véhicule et le carburant, gardés d'un voyage à l'autre -->
+          <div class="titre-question">Avec quoi ?</div>
+          <div class="ligne" data-groupe="vehicule" data-unique></div>
+          <div class="ligne" data-groupe="carburant" data-unique></div>
+          <div class="trois">
+            <label class="champ">Au départ (L) <input type="number" name="litresDepart" inputmode="decimal" min="0" step="1" /></label>
+            <label class="champ">Conso (L/100) <input type="number" name="conso" inputmode="decimal" min="1" step="0.1" /></label>
+            <label class="champ">Prix payé (€/L) <input type="number" name="prix" inputmode="decimal" min="0" step="0.001" placeholder="moyenne" /></label>
+          </div>
+          <div class="deux">
+            <label class="champ">Réservoir (L) <input type="number" name="reservoir" inputmode="decimal" min="10" step="1" /></label>
+            <label class="champ">Budget carburant (€) <input type="number" name="budget" inputmode="decimal" min="0" step="5" placeholder="aucun" /></label>
+          </div>
+          <div class="titre-question">Pour aller où ?</div>
           <div class="ligne" data-groupe="mode" data-unique></div>
           <p class="info" id="info-plein" hidden></p>
           <label class="champ" id="champ-destination">Où vas-tu ?
@@ -75,17 +89,6 @@
           <div class="ligne" data-groupe="niveau" data-unique></div>
           <div class="titre">Pour dormir</div>
           <div class="ligne" data-groupe="nuits"></div>
-          <div class="titre">Véhicule et carburant</div>
-          <div class="ligne" data-groupe="carburant" data-unique></div>
-          <div class="trois">
-            <label class="champ">Au départ (L) <input type="number" name="litresDepart" inputmode="decimal" min="0" step="1" /></label>
-            <label class="champ">Conso (L/100) <input type="number" name="conso" inputmode="decimal" min="1" step="0.1" /></label>
-            <label class="champ">Prix payé (€/L) <input type="number" name="prix" inputmode="decimal" min="0" step="0.001" placeholder="moyenne" /></label>
-          </div>
-          <div class="deux">
-            <label class="champ">Réservoir (L) <input type="number" name="reservoir" inputmode="decimal" min="10" step="1" /></label>
-            <label class="champ">Budget carburant (€) <input type="number" name="budget" inputmode="decimal" min="0" step="5" placeholder="aucun" /></label>
-          </div>
           <div class="titre">Me guider avec</div>
           <div class="ligne" data-groupe="guidage" data-unique></div>
           <p class="info" id="info-plus-tard" hidden></p>

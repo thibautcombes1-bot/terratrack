@@ -87,6 +87,19 @@ export function meteoJournee(lat, lon, date) {
   };
 }
 
+/**
+ * « Beau temps » : un coefficient pour un coin sur les jours du voyage (moyenne) :
+ * grand soleil ×1,5, quelques nuages ×1,15, averses possibles ×0,8, pluie ×0,4, orage ×0,2.
+ * null si l'on n'a pas les prévisions.
+ */
+export function coefficientBeauTemps(lat, lon, dates) {
+  const jours = dates.map((d) => meteoJournee(lat, lon, d)).filter(Boolean);
+  if (!jours.length) return null;
+  const coef = (m) =>
+    m.code >= 95 ? 0.2 : m.pluieProba >= 60 || m.pluie >= 1 ? 0.4 : m.pluieProba >= 30 ? 0.8 : m.code <= 1 ? 1.5 : m.code <= 3 ? 1.15 : 0.9;
+  return jours.reduce((s, m) => s + coef(m), 0) / jours.length;
+}
+
 /** Ce qui compte pour le voyage. Codes météo WMO : 95-99 orage, 71-77 et 85-86 neige. */
 export function risques(m) {
   if (!m) return {};

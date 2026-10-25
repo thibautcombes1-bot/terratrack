@@ -12,8 +12,8 @@ import { bilanCarburant, niveauA } from '../../commun/carburant.js';
 import { preparerRoute as routeDe, situer } from '../../server/itineraire.js';
 import { itineraireMulti } from '../../commun/routeur.js';
 import { registerPlugin } from '@capacitor/core';
-import { chargerMeteo, icone, meteoA, meteoJournee, risques, texteMeteo } from './meteo.js';
-import { CARBURANTS, ecrireVehicule, euros, litresTexte, lireVehicule, prixMedian, prixStation, prixTexte, rafraichirPrix } from './carburant.js';
+import { chargerMeteo, coefficientBeauTemps, icone, meteoA, meteoJournee, risques, texteMeteo } from './meteo.js';
+import { CARBURANTS, VEHICULES, ecrireVehicule, euros, litresTexte, lireVehicule, prixMedian, prixStation, prixTexte, rafraichirPrix } from './carburant.js';
 import {
   ENVIES,
   NUITS,
@@ -33,6 +33,9 @@ import {
   totaux,
   estGratuit,
   nuitsGratuites,
+  ITINERAIRES,
+  choisirItineraire,
+  comparerItineraires,
   pleinsPrevus,
   recalerJour,
   stationsSurLaRoute,
@@ -179,10 +182,12 @@ const GROUPES = {
   jours: { options: [['0.5', '½ journée'], ['1', '1 jour'], ['2', 'Week-end'], ['3', '3 jours'], ['5', '5 jours'], ['7', 'Une semaine']], unique: true, defaut: ['2'] },
   rythme: { options: Object.fromEntries(Object.entries(RYTHMES).map(([k, r]) => [k, r.nom])), unique: true, defaut: ['normal'] },
   peages: { options: [['autorises', 'Péages autorisés'], ['eviter', 'Éviter les péages']], unique: true, defaut: ['autorises'] },
-  envies: { options: ENVIES, unique: false, defaut: ['patrimoine', 'panoramas', 'nature'] },
+  // « Beau temps » n'est pas un genre de lieu : c'est aller là où il fera beau (météo des jours du voyage).
+  envies: { options: { ...ENVIES, beautemps: '☀️ Beau temps' }, unique: false, defaut: ['patrimoine', 'panoramas', 'nature'] },
   niveau: { options: [['tous', 'Tous niveaux'], ['1', 'Facile'], ['2', 'Jusqu’à moyen'], ['3', 'Jusqu’à difficile']], unique: true, defaut: ['tous'] },
   nuits: { options: Object.fromEntries(Object.entries(NUITS).map(([k, n]) => [k, n.nom])), unique: false, defaut: ['camping', 'gite'] },
   // Réglages gardés d'un voyage à l'autre (pas dans le brouillon) : véhicule et appli de guidage.
+  vehicule: { options: Object.fromEntries(Object.entries(VEHICULES).map(([k, v]) => [k, v.nom])), unique: true, defaut: [lireVehicule().type], reglage: true },
   carburant: { options: CARBURANTS, unique: true, defaut: [lireVehicule().carburant], reglage: true },
   guidage: { options: [['organic', 'Organic Maps'], ['waze', 'Waze'], ['plans', 'Plans']], unique: true, defaut: [memoire.lire('guidage', 'organic')], reglage: true },
 };
@@ -203,6 +208,13 @@ for (const [nom, g] of Object.entries(GROUPES)) {
       for (const p of zone.children)
         if (p !== puce && (p.dataset.valeur === 'debrouille' || puce.dataset.valeur === 'debrouille')) p.setAttribute('aria-pressed', 'false');
     majMode();
+    // Changer de véhicule remet sa consommation et son réservoir habituels (on peut les ajuster).
+    if (nom === 'vehicule') {
+      const v = VEHICULES[puce.dataset.valeur];
+      form.elements.conso.value = v.conso;
+      form.elements.reservoir.value = v.reservoir;
+      if (Number(form.elements.litresDepart.value) > v.reservoir) form.elements.litresDepart.value = v.reservoir;
+    }
     if (g.reglage) majReglages();
   });
 }
@@ -213,6 +225,7 @@ const CHAMPS_VEHICULE = ['litresDepart', 'conso', 'prix', 'reservoir', 'budget']
 for (const nom of CHAMPS_VEHICULE) form.elements[nom].value = lireVehicule()[nom] ?? '';
 function majReglages() {
   const v = lireVehicule();
+  v.type = choix('vehicule')[0] ?? v.type;
   v.carburant = choix('carburant')[0] ?? v.carburant;
   for (const nom of CHAMPS_VEHICULE) {
     const x = Number.parseFloat(String(form.elements[nom].value).replace(',', '.'));
@@ -277,7 +290,7 @@ function remplirPreparer(p) {
     jours: [String(p.jours)],
     rythme: [p.rythme],
     peages: [p.eviterPeages ? 'eviter' : 'autorises'],
-    envies: p.envies,
+    envies: [...p.envies, ...(p.veutBeauTemps ? ['beautemps'] : [])],
     nuits: p.nuits,
     niveau: [p.niveauMax ? String(p.niveauMax) : 'tous'],
   };
@@ -335,7 +348,8 @@ form.addEventListener('submit', async (ev) => {
     date: form.elements.date.value,
     heure: versMinutes(form.elements.heure.value || '09:30'),
     rythme: choix('rythme')[0],
-    envies: choix('envies'),
+    envies: choix('envies').filter((e) => e !== 'beautemps'),
+    veutBeauTemps: choix('envies').includes('beautemps'),
     nuits: choix('nuits'),
     eviterPeages: choix('peages')[0] === 'eviter',
     niveauMax: choix('niveau')[0] === 'tous' ? null : Number(choix('niveau')[0]),
@@ -343,7 +357,7 @@ form.addEventListener('submit', async (ev) => {
     exclus: [...dejaVus.keys(), ...effetDesNotes().ecartes],
     bonusParType: effetDesNotes().bonusParType,
   };
-  memoire.ecrire('brouillon', { ...p, mode, jours: String(p.jours), heure: form.elements.heure.value, niveau: choix('niveau')[0] });
+  memoire.ecrire('brouillon', { ...p, envies: choix('envies'), mode, jours: String(p.jours), heure: form.elements.heure.value, niveau: choix('niveau')[0] });
   if (!p.depart) return montrerErreur(erreur, 'Choisis ta commune de départ dans la liste.');
   if (mode === 'destination' && !p.destination) return montrerErreur(erreur, 'Choisis ta destination dans la liste.');
   erreur.hidden = true;
@@ -353,6 +367,20 @@ form.addEventListener('submit', async (ev) => {
   trace = [];
   memoire.ecrire('trace', trace);
   carte.afficherTrace(trace);
+  // « Beau temps » : la météo des jours du voyage tout autour du départ, avant de choisir où aller.
+  if (p.veutBeauTemps) {
+    const bouton = form.querySelector('button[type=submit]');
+    bouton.textContent = 'Où fera-t-il beau ?';
+    // Jusqu'où regarder : comme le parcours (jours et rythme), et pas plus loin que le plein.
+    const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;
+    const parJours = rythme.conduiteH * 45 * Math.max(1, Math.round(p.jours)) * 0.35;
+    const portee = mode === 'destination' || (mode === 'boucle' && p.destination) ? 0 : mode === 'plein' ? Math.min(parJours, porteePlein().rayon) : parJours;
+    const dates = Array.from({ length: Math.max(1, Math.round(p.jours)) }, (_, i) => ajouterJoursIso(p.date, i));
+    if (portee && (await chargerMeteo(grilleAutour(p.depart, portee)).catch(() => false) || coefficientBeauTemps(p.depart.lat, p.depart.lon, dates) != null))
+      p.beauTemps = (l) => coefficientBeauTemps(l.lat, l.lon, dates);
+    else if (portee) afficherToast('☀️ Beau temps : pas de prévisions sans réseau, je fais comme d’habitude.');
+    bouton.textContent = 'Proposer un parcours';
+  }
   const calculer = (extra = {}) => {
     if (mode !== 'plein') return planifier(pack, { ...p, ...extra });
     let rayon = porteePlein().rayon;
@@ -419,7 +447,7 @@ function rendreParcours() {
       <div><b>+${duree(t.detourMin)}</b>de détours</div>
     </div>
     ${blocCarburant()}
-    <p class="info">Ce qui te plaît : ${h(plan.params.envies.map((e) => ENVIES[e]).join(', ') || 'rien de coché')}</p>
+    <p class="info">Ce qui te plaît : ${h([...plan.params.envies.map((e) => ENVIES[e]), ...(plan.params.veutBeauTemps ? ['☀️ Beau temps'] : [])].join(', ') || 'rien de coché')}</p>
     ${plan.favorisInclus ? `<p class="info">⭐ ${plan.favorisInclus} lieu(x) de ta liste « Plus tard » inclus.</p>` : ''}
     ${(plan.avertissements ?? []).map((a) => `<p class="alerte">⚠️ ${h(a)}</p>`).join('')}
     ${
@@ -454,6 +482,22 @@ function rendreParcours() {
 }
 
 // ---------- Météo sur le parcours ----------
+
+/** Une grille de points autour de `centre` (rayon en km), une centaine au plus, pour la météo. */
+function grilleAutour(centre, rayonKm) {
+  const pas = Math.max(25, rayonKm / 5);
+  const points = [];
+  for (let dy = -rayonKm; dy <= rayonKm; dy += pas)
+    for (let dx = -rayonKm; dx <= rayonKm; dx += pas)
+      if (dx * dx + dy * dy <= rayonKm * rayonKm)
+        points.push({ lat: centre.lat + dy / 110.57, lon: centre.lon + dx / (111.32 * Math.cos((centre.lat * Math.PI) / 180)) });
+  return points;
+}
+const ajouterJoursIso = (iso, n) => {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
 /** Points où demander la météo : départs, étapes, nuits, et la route tous les ~25 km. */
 function pointsMeteo(p) {
@@ -542,6 +586,50 @@ function blocCarburant() {
     </div>`;
 }
 
+// ---------- Trois itinéraires, avec la consommation et le coût de chacun ----------
+
+/** Péages : environ 0,10 €/km en voiture (classe 1), 0,15 € en van, 0,06 € à moto. Une estimation. */
+const TARIF_PEAGE = { voiture: 0.1, van: 0.15, moto: 0.06 };
+let comparaison = { cle: null, liste: [] };
+function blocItineraires() {
+  if (!plan?.jours?.[0]?.profil || plan.jours.every((j) => j.metres < 2000)) return '';
+  // Mêmes étapes et mêmes nuits : la comparaison ne se refait pas à chaque affichage.
+  const cle = JSON.stringify(plan.jours.map((j) => [j.debut.lat, j.debut.lon, j.etapes.map((e) => e.id), j.fin.id]));
+  if (comparaison.cle !== cle) comparaison = { cle, liste: comparerItineraires(pack, plan) };
+  const v = vehiculeCalcul();
+  const tarif = TARIF_PEAGE[v.type] ?? 0.1;
+  const actuel = ITINERAIRES.find((i) => i.options.eviterPeages === Boolean(plan.params.eviterPeages) && i.options.economie === Boolean(plan.params.economie))?.cle;
+  const lignes = comparaison.liste.map((it) => {
+    const litres = (it.equivalents * v.conso) / 100;
+    const peage = (it.metresPeage / 1000) * tarif;
+    return { ...it, litres, carburant: litres * v.prix, peage, total: litres * v.prix + peage };
+  });
+  const moinsCher = Math.min(...lignes.map((l) => l.total));
+  return `
+    <div class="encadre">
+      <div class="nom">🛣️ Trois façons de faire ce voyage</div>
+      ${lignes
+        .map(
+          (l) => `
+        <div class="station">
+          <b>${h(l.nom)}</b>${l.cle === actuel ? ' · <span class="marge-ok">choisi</span>' : ''}${Math.abs(l.total - moinsCher) < 0.5 ? ' · 💶 le moins cher' : ''}
+          <small>${km(l.metres)} · ${duree(l.secondes / 60)} de route · ~${litresTexte(l.litres)} de ${h(CARBURANTS[v.carburant].toLowerCase())} (${euros(l.carburant)})${l.peage >= 1 ? ` · péages ~${euros(l.peage)}` : ' · sans péage'} → <b>~${euros(l.total)}</b></small>
+          ${l.cle === actuel ? '' : `<div class="actions"><button type="button" data-itineraire="${l.cle}">Choisir</button></div>`}
+        </div>`,
+        )
+        .join('')}
+      <small>Carburant estimé selon la route ; péages estimés à ~${String(tarif).replace('.', ',')} €/km.</small>
+    </div>`;
+}
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-itineraire]');
+  const choix = b && ITINERAIRES.find((i) => i.cle === b.dataset.itineraire);
+  if (!choix || !plan) return;
+  choisirItineraire(pack, plan, choix.options);
+  enregistrer();
+  afficherToast(`🛣️ ${choix.nom} : le parcours est recalculé.`);
+});
+
 // ---------- Compte rendu à valider avant le départ ----------
 
 let compteRendu = [];
@@ -566,8 +654,9 @@ function rendreCompteRendu(zone) {
       <div><b>${t.peage ? 'oui' : plan.params.eviterPeages ? 'évités' : 'aucun'}</b>péage</div>
       <div><b>+${duree(t.detourMin)}</b>de détours</div>
     </div>
+    ${blocItineraires()}
     ${blocCarburant()}
-    <p class="info">Ce qui te plaît : ${h(plan.params.envies.map((e) => ENVIES[e]).join(', ') || 'rien de coché')}</p>
+    <p class="info">Ce qui te plaît : ${h([...plan.params.envies.map((e) => ENVIES[e]), ...(plan.params.veutBeauTemps ? ['☀️ Beau temps'] : [])].join(', ') || 'rien de coché')}</p>
     ${plan.favorisInclus ? `<p class="info">⭐ ${plan.favorisInclus} lieu(x) de ta liste « Plus tard » inclus.</p>` : ''}
     ${plan.params.mode === 'plein' ? '<p class="info">⛽ Boucle choisie pour ton plein : retour au départ sans refaire le plein.</p>' : ''}
     ${(plan.avertissements ?? []).map((a) => `<p class="alerte">⚠️ ${h(a)}</p>`).join('')}

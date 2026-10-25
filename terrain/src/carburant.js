@@ -4,7 +4,13 @@
 import { memoire } from './outils.js';
 
 export const CARBURANTS = { gazole: 'Gazole', SP95: 'SP95', E10: 'E10', SP98: 'SP98', E85: 'E85', GPL: 'GPL' };
-const DEFAUT = { carburant: 'gazole', litresDepart: 40, reservoir: 55, conso: 6.5, prix: null, reserveKm: 60, budget: null };
+/** Véhicules : consommation et réservoir habituels (modifiables). */
+export const VEHICULES = {
+  voiture: { nom: '🚗 Voiture', conso: 6.5, reservoir: 50 },
+  van: { nom: '🚐 Van, camping-car', conso: 10, reservoir: 80 },
+  moto: { nom: '🏍️ Moto', conso: 5, reservoir: 17 },
+};
+const DEFAUT = { type: 'voiture', carburant: 'gazole', litresDepart: 40, reservoir: 50, conso: 6.5, prix: null, reserveKm: 60, budget: null };
 
 export const lireVehicule = () => ({ ...DEFAUT, ...memoire.lire('vehicule', {}) });
 export const ecrireVehicule = (vehicule) => memoire.ecrire('vehicule', vehicule);
