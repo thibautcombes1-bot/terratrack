@@ -3,7 +3,7 @@
 // vrais temps de route (commun/routeur.js), nuits avant la tombée du jour.
 import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire, itineraireMulti } from '../../commun/routeur.js';
-import { cleOrdre, decouperJours, preparerRoute, rectangle, selectionner, situer } from '../../server/itineraire.js';
+import { decouperJours, preparerRoute, rectangle, situer } from '../../server/itineraire.js';
 import { ajouterJours } from './outils.js';
 import { kmDansLaJournee, profilConso } from '../../commun/carburant.js';
 import { coucherSoleil } from './soleil.js';
@@ -59,10 +59,29 @@ const INTERET = [
   [/église|chapelle|monument|tour|pont/i, 0.6],
 ];
 
-const texteLieu = (l) => `${l.type ?? ''} ${l.nom ?? ''} ${l.labels?.join(' ') ?? ''}`;
+// Calculs gardés par lieu : à l'échelle de la France, on les referait des centaines de milliers de fois.
+const memoTexte = new WeakMap();
+const memoInteret = new WeakMap();
+const memoEnvies = new WeakMap();
+const texteLieu = (l) => {
+  let t = memoTexte.get(l);
+  if (t === undefined) memoTexte.set(l, (t = `${l.type ?? ''} ${l.nom ?? ''} ${l.labels?.join(' ') ?? ''}`));
+  return t;
+};
+/** Le lieu répond-il à cette envie ? (gardé par lieu et par envie) */
+function repondA(l, e) {
+  let parEnvie = memoEnvies.get(l);
+  if (!parEnvie) memoEnvies.set(l, (parEnvie = {}));
+  return (parEnvie[e] ??= l.activite === e || (e === 'unesco' && Boolean(l.unesco)) || Boolean(MOTIFS_ENVIES[e]?.test(texteLieu(l))));
+}
 
 /** Intérêt propre d'un lieu (type, labels, notoriété), indépendant de la personne. */
 export function interet(l) {
+  let v = memoInteret.get(l);
+  if (v === undefined) memoInteret.set(l, (v = calculerInteret(l)));
+  return v;
+}
+function calculerInteret(l) {
   let s = 0.5;
   for (const [motif, valeur] of INTERET) if (motif.test(texteLieu(l))) s = Math.max(s, valeur);
   if (l.unesco) s = Math.max(s, 4);
@@ -72,12 +91,10 @@ export function interet(l) {
   return s + Math.min(2, (l.notoriete ?? 0) / 8) + (l.classe ? 0.5 : 0);
 }
 
-export const plaitA = (l, envies) =>
-  envies.some((e) => l.activite === e || (e === 'unesco' && l.unesco) || MOTIFS_ENVIES[e]?.test(texteLieu(l)));
+export const plaitA = (l, envies) => envies.some((e) => repondA(l, e));
 
 /** Les envies du début auxquelles un lieu répond. */
-export const enviesDe = (l, envies) =>
-  envies.filter((e) => l.activite === e || (e === 'unesco' && l.unesco) || MOTIFS_ENVIES[e]?.test(texteLieu(l)));
+export const enviesDe = (l, envies) => envies.filter((e) => repondA(l, e));
 
 /** Pourquoi ce lieu est dans le parcours, en lien avec les envies cochées au départ. */
 export function justifier(l, envies) {
@@ -122,8 +139,15 @@ function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = n
   // envies cochées compte triple : une semaine « via ferrata » part là où il y en a.
   // Seulement ceux à portée, rangés dans une grille de ~15 km : on ne compare que les voisins.
   const voulu = (l) => envies.length > 0 && l.nom && plaitA(l, envies);
+  const dLat = (porteeKm + 15) / 110.57;
+  const dLon = (porteeKm + 15) / (111.32 * Math.cos((depart.lat * Math.PI) / 180));
   const remarquables = lieux.filter(
-    (l) => (favoris.has(l.id) || voulu(l) || (l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5)) && distanceKm(depart, l) <= porteeKm + 15,
+    (l) =>
+      Math.abs(l.lat - depart.lat) <= dLat &&
+      Math.abs(l.lon - depart.lon) <= dLon &&
+      (l.categorie === 'decouvrir' || favoris.has(l.id) || l.activite) &&
+      (favoris.has(l.id) || voulu(l) || (l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5)) &&
+      distanceKm(depart, l) <= porteeKm + 15,
   );
   const grille = new Map();
   const cle = (i, j) => `${i}:${j}`;
@@ -253,53 +277,60 @@ export function planifier(pack, p) {
   const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;
   const nbJours = p.jours <= 1 ? 1 : Math.round(p.jours);
   const boucle = p.mode !== 'destination';
-  // Jusqu'où aller : selon les jours et le rythme, et pas plus loin que ce que permet le plein (mode « Avec mon plein »).
-  const porteeKm = Math.min(p.porteeMaxKm ?? Infinity, rythme.conduiteH * 45 * Math.max(1, nbJours) * (boucle ? 0.35 : 0.8));
+  // Budget de route (km) : selon les jours et le rythme ; en « Avec mon plein », pas plus que le plein.
+  let budgetKm = Math.min(p.kmMax ?? Infinity, rythme.conduiteH * 50 * Math.max(0.5, Math.min(p.jours, nbJours)));
+  // Jusqu'où va le coin d'une boucle : l'aller-retour direct n'en prend qu'environ la moitié,
+  // il reste de quoi faire des détours (sinon une semaine se résume à quelques étapes).
+  const porteeKm = Math.min(p.porteeMaxKm ?? Infinity, budgetKm / 5);
   const cible =
     p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris, p.beauTemps, p.envies) ?? p.depart;
-
-  const loin = distanceKm(p.depart, cible) > 1.5;
-  const base = loin ? itineraire(pack.graphe, p.depart, cible, { eviterPeages: Boolean(p.eviterPeages), economie: Boolean(p.economie) }) : null;
-  if (loin && !base) throw new Error('Pas de route trouvée vers cette destination dans la région.');
-  const route = preparerRoute(base ? base.coords : [[p.depart.lon, p.depart.lat]]);
-  const rayonCoin = p.mode === 'destination' ? 6 : Math.min(25, Math.max(8, porteeKm * 0.3));
-  // Corridor de liberté : plus il reste de temps de route par rapport au trajet direct, plus on s'écarte.
-  const budgetKm = rythme.conduiteH * 45 * Math.max(1, nbJours) * Math.min(1, p.jours);
-  const largeur = Math.min(25, Math.max(7, (budgetKm - (base?.metres ?? 0) / 1000) / (4 * Math.max(1, nbJours))));
-  const ctx = { route, depart: p.depart, centre: cible, rayonCoin, largeur, boucle };
+  if (distanceKm(p.depart, cible) > 1.5 && !itineraire(pack.graphe, p.depart, cible, { eviterPeages: Boolean(p.eviterPeages) }))
+    throw new Error('Pas de route trouvée vers cette destination.');
   const exclus = new Set(p.exclus ?? []);
-  // À l'échelle de la France, on ne regarde que le rectangle du trajet (avec la marge du couloir).
-  const dansZone = rectangle([...route.coords, [cible.lon, cible.lat]], Math.max(largeur * 2, rayonCoin) + 2);
+  // La tournée de départ : départ → arrivée, ou départ → coin → retour.
+  const ancres = boucle ? [p.depart, cible, p.depart] : [p.depart, cible];
+  const directKm = longueurTournee(ancres);
+  // Une destination (ou un coin) lointaine : le trajet direct passe avant, plus de quoi faire des étapes.
+  budgetKm = Math.max(budgetKm, directKm * 1.2 + 40);
+  // Où chercher : l'ellipse des lieux joignables dans le budget (départ, coin, arrivée comme foyers).
+  const margeKm = Math.max(10, (budgetKm - directKm) / (2 * KM_ROUTE));
+  const dansZone = rectangle(ancres.map((a) => [a.lon, a.lat]), margeKm);
+  const joignable = (l) => {
+    const ajout = (Math.min(...ancres.slice(1).map((a, i) => distanceKm(ancres[i], l) + distanceKm(l, a) - distanceKm(ancres[i], a)))) * KM_ROUTE;
+    return directKm + ajout <= budgetKm;
+  };
+  // Le jour (estimé) où l'on passera près d'un lieu, pour la météo : selon sa place entre départ et arrivée.
+  const dateDe = (l) => {
+    const a = distanceKm(p.depart, l);
+    const b = distanceKm(l, boucle ? cible : p.destination ?? cible);
+    const part = boucle ? Math.min(1, a / Math.max(1, distanceKm(p.depart, cible))) / 2 : a / Math.max(1, a + b);
+    return ajouterJours(p.date, Math.min(nbJours - 1, Math.floor(part * nbJours)));
+  };
 
   const candidats = [];
-  // Lieux remarquables du trajet qui ne répondent pas aux envies : proposés seulement en alternative.
   const autres = [];
   const favorisAPortee = [];
   const ecartesMeteo = [];
   for (const l of pack.lieux) {
-    if (!dansZone(l)) continue;
-    // Un lieu gardé « pour plus tard » passe avant les envies et le niveau, s'il est à portée (couloir élargi).
+    if (!l.nom || (l.categorie !== 'decouvrir' && !l.activite && !favoris.has(l.id)) || !dansZone(l) || exclus.has(l.id) || distanceKm(p.depart, l) < 1) continue;
+    // Un lieu gardé « pour plus tard » passe avant les envies et le niveau, s'il est joignable.
     if (favoris.has(l.id)) {
-      const position = !exclus.has(l.id) && cleOrdre(l, { ...ctx, largeur: largeur * 2 });
-      if (position) favorisAPortee.push({ ...l, ...position, favori: true, qualite: interet(l) + 3, score: 10, dureeH: dureeVisite(l) / 60 });
+      if (joignable(l)) favorisAPortee.push({ ...l, favori: true, valeur: 20, score: 10, dureeH: dureeVisite(l) / 60 });
       continue;
     }
     // Les baignades sont des « pauses » ; elles deviennent des étapes si on en a envie.
     const etapePossible = l.categorie === 'decouvrir' || (l.activite && p.envies.includes(l.activite));
-    if (!etapePossible || !l.nom || exclus.has(l.id) || distanceKm(p.depart, l) < 1) continue;
+    if (!etapePossible) continue;
     // Une activité qu'on n'a pas choisie ne remplit pas la journée à la place des visites.
     if (ACTIVITES.has(l.activite) && !p.envies.includes(l.activite)) continue;
-    if (!aMonNiveau(l, p.niveauMax)) continue;
-    const position = cleOrdre(l, ctx);
-    if (!position) continue;
-    // Ce qui est coché est un filtre strict : seulement des lieux qui y répondent.
+    if (!aMonNiveau(l, p.niveauMax) || !joignable(l)) continue;
+    // Ce qui est coché est un filtre strict : seulement des lieux qui y répondent (les autres en idées).
     if (p.envies.length && !plaitA(l, p.envies)) {
-      if (interet(l) >= 1.5) autres.push({ ...l, ...position, interet: interet(l), score: interet(l) - position.ecart / largeur });
+      if (interet(l) >= 2.4) autres.push(l);
       continue;
     }
     // La météo prévue ce jour-là (si on l'a) : orage ou vent fort écartent via ferrata, escalade, canoë, rando.
-    const jourDuLieu = ajouterJours(p.date, Math.min(nbJours - 1, Math.floor(position.cle * nbJours)));
-    const risquesDuLieu = p.meteo?.(l, jourDuLieu);
+    const risquesDuLieu = p.meteo?.(l, dateDe(l));
     // Avec « Beau temps », la pluie retire des points à toutes les étapes, même à l'abri.
     const effetMeteo = (p.meteo ? ajustementMeteo(l, risquesDuLieu) : 0) - (p.beauTemps && (risquesDuLieu?.pluie || risquesDuLieu?.orage) ? 1.5 : 0);
     if (effetMeteo === -Infinity) {
@@ -308,88 +339,50 @@ export function planifier(pack, p) {
     }
     // L'envie compte, mais un lieu doit aussi être remarquable (labels, notoriété, type).
     // Tes notes vérifiées sur place favorisent (ou écartent) les lieux du même type.
-    const qualite = interet(l) + (plaitA(l, p.envies) ? 1.5 : 0) + (p.bonusParType?.[l.activite ?? l.type] ?? 0) + effetMeteo;
-    const score = qualite - (position.ecart / largeur) * 1.5 + (Math.random() - 0.5) * 0.4;
-    candidats.push({ ...l, ...position, qualite, score, dureeH: dureeVisite(l) / 60 });
+    const valeur = interet(l) + (plaitA(l, p.envies) ? 1.5 : 0) + (p.bonusParType?.[l.activite ?? l.type] ?? 0) + effetMeteo + Math.random() * 0.3;
+    if (valeur > 0) candidats.push({ ...l, valeur, score: valeur, dureeH: dureeVisite(l) / 60 });
   }
   const nbEtapes = p.jours < 1 ? 2 : nbJours * rythme.etapes;
-  // Moins d'arrêts mais de qualité : seulement les lieux remarquables ou qui collent aux envies.
-  // S'il en manque, on baisse le seuil plutôt que de laisser des journées vides.
-  let retenus = [];
-  for (const seuil of [3.5, 2.5, 1.5, -Infinity]) {
-    retenus = candidats.filter((c) => c.qualite >= seuil);
-    if (retenus.length >= nbEtapes * 2) break;
-  }
-  // De la variété : pas plus d'un tiers du voyage avec le même type de lieu.
-  const parType = new Map();
-  // Avec une seule envie (ex. via ferrata), on veut justement que des lieux de ce type.
+  // Moins d'arrêts mais de qualité : les meilleurs d'abord (les 400 premiers suffisent).
+  candidats.sort((a, b) => b.valeur - a.valeur);
+  const meilleurs = candidats.slice(0, 400);
+  // De la variété : pas plus d'un tiers du voyage avec le même type de lieu (sauf une seule envie).
   const maxParType = p.envies.length <= 1 ? Infinity : Math.max(2, Math.ceil(nbEtapes / 3));
-  retenus = [...retenus]
-    .sort((a, b) => b.score - a.score)
-    .filter((c) => {
-      const cle = c.activite ?? c.type;
-      parType.set(cle, (parType.get(cle) ?? 0) + 1);
-      return parType.get(cle) <= maxParType;
-    });
-  const choisis = selectionner(retenus, nbEtapes, 3);
-  // Chaque activité cochée doit apparaître si elle est à portée : on remplace l'étape la plus faible.
+
+  // Chaque activité cochée doit apparaître si elle est joignable : sa meilleure étape passe en priorité.
   const avertissements = [];
+  const prioritaires = [...favorisAPortee];
   for (const envie of p.envies.filter((e) => ACTIVITES.has(e) || e === 'unesco')) {
     const repond = (c) => c.activite === envie || (envie === 'unesco' && c.unesco);
-    if (choisis.some(repond)) continue;
-    const meilleur = candidats.filter(repond).sort((a, b) => b.score - a.score)[0];
-    if (!meilleur) {
+    const meilleur = meilleurs.find(repond);
+    if (meilleur) prioritaires.push(meilleur);
+    else
       avertissements.push(
         ecartesMeteo.some(repond)
           ? `⛈️ Orage ou vent fort prévus : ${ENVIES[envie].toLowerCase()} déconseillée sur ce trajet à ces dates.`
-          : `Pas de ${ENVIES[envie].toLowerCase()} près de ce trajet : essaie « Boucle et retour » ou une autre destination.`,
+          : `Pas de ${ENVIES[envie].toLowerCase()} joignable avec ce trajet : essaie plus de jours ou une autre destination.`,
       );
-      continue;
-    }
-    const remplacable = choisis.filter((c) => !enviesDe(c, p.envies).some((e) => ACTIVITES.has(e) || e === 'unesco'));
-    if (remplacable.length >= 1 && choisis.length >= nbEtapes) choisis.splice(choisis.indexOf(remplacable.sort((a, b) => a.score - b.score)[0]), 1);
-    choisis.push(meilleur);
   }
-  // Les favoris à portée sont ajoutés d'office, à la place des étapes les plus faibles.
-  for (const f of favorisAPortee) {
-    const remplacable = choisis.filter((c) => !c.favori && !enviesDe(c, p.envies).some((e) => ACTIVITES.has(e) || e === 'unesco'));
-    if (choisis.length >= nbEtapes && remplacable.length) choisis.splice(choisis.indexOf(remplacable.sort((a, b) => a.score - b.score)[0]), 1);
-    choisis.push(f);
-  }
+  const { tournee, choisis } = composerTournee(ancres, meilleurs, { budgetKm, nbEtapes, prioritaires, maxParType });
+  // Place de chaque étape dans la tournée (0 au départ, 1 à l'arrivée) : l'ordre de passage.
+  choisis.forEach((c) => (c.cle = tournee.indexOf(c) / Math.max(1, tournee.length - 1)));
   choisis.sort((a, b) => a.cle - b.cle);
 
-  // Pas assez de lieux pour ce qui est coché : on propose (sans les imposer) la même envie
-  // un peu plus loin du trajet, puis d'autres lieux remarquables sur le trajet.
+  // Pas assez de lieux pour ce qui est coché : d'autres lieux remarquables tout près de la tournée,
+  // proposés (pas imposés), une idée par portion du voyage.
   const alternatives = [];
+  const route = preparerRoute(tournee.map((t) => [t.lon, t.lat]));
   if (p.envies.length && choisis.length < nbEtapes) {
-    const pris = new Set(choisis.map((c) => c.id));
-    const dansCouloir40 = rectangle([...route.coords, [cible.lon, cible.lat]], 41);
-    for (const envie of p.envies) {
-      if (choisis.some((c) => enviesDe(c, [envie]).length)) continue;
-      const plusLoin = pack.lieux
-        // Pas les grands espaces (parc national, massif…) : il faut un endroit où s'arrêter.
-        .filter((l) => dansCouloir40(l) && l.nom && !pris.has(l.id) && !exclus.has(l.id) && enviesDe(l, [envie]).length && !/parc (national|naturel)|massif|réserve/i.test(`${l.nom} ${l.type}`))
-        .map((l) => ({ l, sit: situer(route, l) }))
-        .filter(({ sit }) => sit.ecart > largeur && sit.ecart <= 40)
-        .sort((a, b) => a.sit.ecart - b.sit.ecart)
-        .slice(0, 2);
-      for (const { l, sit } of plusLoin)
-        alternatives.push({
-          ...resume(l),
-          cle: route.longueur ? sit.s / route.longueur : 0,
-          pourquoi: `${ENVIES[envie]}, un peu plus loin : à ${Math.round(sit.ecart)} km de ton trajet${justifier(l, []).replace(/^Lieu remarquable sur ta route/, '')}`,
-          genre: 'plus-loin',
-        });
-    }
-    // Une idée par portion du trajet (une par jour), la meilleure de chaque portion ;
-    // on complète ensuite avec les suivantes s'il en manque.
+    const pres = autres
+      .map((l) => ({ l, sit: situer(route, l) }))
+      .filter(({ sit }) => sit.ecart <= 15)
+      .map(({ l, sit }) => ({ ...l, cle: route.longueur ? sit.s / route.longueur : 0, valeur: interet(l) - sit.ecart / 10 }));
     const idees = [];
     const portions = Math.max(2, nbJours);
     for (let k = 0; k < portions; k++) {
-      const meilleure = autres.filter((l) => l.cle >= k / portions && l.cle < (k + 1) / portions).sort((a, b) => b.score - a.score)[0];
+      const meilleure = pres.filter((l) => l.cle >= k / portions && l.cle < (k + 1) / portions).sort((a, b) => b.valeur - a.valeur)[0];
       if (meilleure) idees.push(meilleure);
     }
-    for (const l of [...autres].sort((a, b) => b.score - a.score)) if (idees.length < 3 && l.interet >= 2.4 && !idees.includes(l)) idees.push(l);
     for (const l of idees) {
       const raisons = justifier(l, []).replace(/^Lieu remarquable sur ta route( · )?/, '');
       alternatives.push({ ...resume(l), cle: l.cle, pourquoi: `Autre idée sur ton trajet${raisons ? ` · ${raisons}` : ''}`, genre: 'autre' });
@@ -397,11 +390,19 @@ export function planifier(pack, p) {
   }
   const fin = boucle ? p.depart : cible;
   const groupes = choisis.length ? decouperJours(choisis, nbJours, { depart: p.depart, fin, vitesse: 45 }) : [[]];
-  // Moins d'étapes que de jours : on garde la durée demandée avec des journées sur place
-  // (même nuit, temps libre), au plus beau du voyage : le coin pour une boucle, l'arrivée sinon.
-  while (groupes.length < nbJours) {
-    const ou = boucle ? Math.max(1, Math.ceil(groupes.length / 2)) : Math.max(1, groupes.length - 1);
-    groupes.splice(ou, 0, []);
+  // Moins d'étapes que de jours : on garde la durée demandée avec des journées sur place (même nuit,
+  // temps libre), réparties entre les journées actives plutôt que toutes d'affilée.
+  const manque = nbJours - groupes.length;
+  if (manque > 0) {
+    const actives = groupes.length;
+    const repartis = [];
+    groupes.forEach((g, i) => {
+      repartis.push(g);
+      const apres = Math.round(((i + 1) * manque) / actives) - Math.round((i * manque) / actives);
+      if (i < actives - 1) for (let k = 0; k < apres; k++) repartis.push([]);
+    });
+    while (repartis.length < nbJours) repartis.splice(Math.max(1, repartis.length - 1), 0, []);
+    groupes.splice(0, groupes.length, ...repartis);
   }
 
   const jours = [];
@@ -738,4 +739,84 @@ export function choisirItineraire(pack, plan, options) {
     j.economie = options.economie;
     recalculerJour(pack, j, conduiteMax(plan));
   }
+}
+
+// ---------- La tournée : course d'orientation ----------
+
+/** Un km à vol d'oiseau fait environ 1,3 km de route. */
+const KM_ROUTE = 1.3;
+/** Longueur (km de route estimés) d'une suite de points. */
+function longueurTournee(points) {
+  let km = 0;
+  for (let i = 1; i < points.length; i++) km += distanceKm(points[i - 1], points[i]) * KM_ROUTE;
+  return km;
+}
+
+/**
+ * Course d'orientation : à partir des `ancres` (départ, coin ou destination, retour), on insère
+ * un à un les lieux au meilleur rapport valeur / km ajoutés, là où ils allongent le moins la
+ * tournée, tant que le budget de route tient. Les `prioritaires` (favoris, une étape par activité
+ * cochée) passent d'abord. Puis on démêle la tournée (2-opt) : pas de croisements ni d'allers-retours.
+ */
+export function composerTournee(ancres, candidats, { budgetKm, nbEtapes, prioritaires = [], espacementKm = 3, maxParType = Infinity }) {
+  const tournee = [...ancres];
+  let longueur = longueurTournee(tournee);
+  const choisis = [];
+  const parType = new Map();
+  const libre = (c) => choisis.every((x) => distanceKm(x, c) >= espacementKm) && (parType.get(c.activite ?? c.type) ?? 0) < maxParType;
+  const insertion = (c) => {
+    let mieux = { ajout: Infinity, i: -1 };
+    for (let i = 1; i < tournee.length; i++) {
+      const ajout = (distanceKm(tournee[i - 1], c) + distanceKm(c, tournee[i]) - distanceKm(tournee[i - 1], tournee[i])) * KM_ROUTE;
+      if (ajout < mieux.ajout) mieux = { ajout, i };
+    }
+    return mieux;
+  };
+  const inserer = (c, { ajout, i }) => {
+    tournee.splice(i, 0, c);
+    longueur += ajout;
+    choisis.push(c);
+    parType.set(c.activite ?? c.type, (parType.get(c.activite ?? c.type) ?? 0) + 1);
+  };
+  // Les priorités ont un peu de souplesse sur le budget (+15 %).
+  for (const c of prioritaires) {
+    if (choisis.length >= nbEtapes || choisis.includes(c) || !libre(c)) continue;
+    const ins = insertion(c);
+    if (longueur + ins.ajout <= budgetKm * 1.15) inserer(c, ins);
+  }
+  const restants = new Set(candidats.filter((c) => !choisis.includes(c)));
+  while (choisis.length < nbEtapes) {
+    let meilleur = null;
+    let place = null;
+    let rapport = -Infinity;
+    for (const c of restants) {
+      if (!libre(c)) continue;
+      const ins = insertion(c);
+      if (longueur + ins.ajout > budgetKm) continue;
+      // +3 km : un lieu sur la route ne vaut pas l'infini ; la valeur garde le dernier mot.
+      const r = c.valeur / (ins.ajout + 3);
+      if (r > rapport) [rapport, meilleur, place] = [r, c, ins];
+    }
+    if (!meilleur) break;
+    inserer(meilleur, place);
+    restants.delete(meilleur);
+  }
+  return { tournee: deuxOpt(tournee), choisis, longueur };
+}
+
+/** 2-opt : on retourne un morceau de la tournée tant que ça la raccourcit (départ et arrivée fixes). */
+function deuxOpt(t) {
+  for (let ameliore = true, tours = 0; ameliore && tours < 50; tours++) {
+    ameliore = false;
+    for (let i = 1; i < t.length - 2; i++)
+      for (let j = i + 1; j < t.length - 1; j++) {
+        const avant = distanceKm(t[i - 1], t[i]) + distanceKm(t[j], t[j + 1]);
+        const apres = distanceKm(t[i - 1], t[j]) + distanceKm(t[i], t[j + 1]);
+        if (apres < avant - 1e-6) {
+          t.splice(i, j - i + 1, ...t.slice(i, j + 1).reverse());
+          ameliore = true;
+        }
+      }
+  }
+  return t;
 }

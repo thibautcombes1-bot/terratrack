@@ -383,15 +383,11 @@ form.addEventListener('submit', async (ev) => {
   }
   const calculer = (extra = {}) => {
     if (mode !== 'plein') return planifier(pack, { ...p, ...extra });
-    // On resserre la boucle pour tenir avec le plein, mais pas sous 60 % de sa portée : un long
-    // voyage demande plusieurs pleins, et c'est mieux qu'un voyage au pas de sa porte.
-    const depart = porteePlein().rayon;
-    let essai;
-    for (let rayon = depart; rayon >= depart * 0.6; rayon *= 0.8) {
-      essai = planifier(pack, { ...p, ...extra, porteeMaxKm: rayon });
-      essai.pleinSuffit = !bilanCarburant(essai.jours, vehiculeCalcul(), []).alerte;
-      if (essai.pleinSuffit) break;
-    }
+    // Le plein est le budget de route : tout le voyage tient dedans (le reste du temps, sur place).
+    const { kmUtiles, rayon } = porteePlein();
+    // 18 % de marge : les vraies routes font un peu plus que l'estimation à vol d'oiseau.
+    const essai = planifier(pack, { ...p, ...extra, kmMax: kmUtiles * 0.82, porteeMaxKm: rayon });
+    essai.pleinSuffit = !bilanCarburant(essai.jours, vehiculeCalcul(), []).alerte;
     return essai;
   };
   try {

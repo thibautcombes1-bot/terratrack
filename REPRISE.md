@@ -24,7 +24,7 @@ ChatGPT, puis donne-lui accès au dépôt (ou colle les fichiers qu'il demande).
 > La vision : « voyager où on veut, sans se prendre la tête, avec seulement les outils
 > vraiment utiles, et sans se ruiner ».
 >
-> Commence par la tâche en cours décrite dans `REPRISE.md` (refonte du créateur d'itinéraire).
+> Demande-moi sur quoi je veux avancer ; les idées en attente sont en bas de `REPRISE.md`.
 
 ---
 
@@ -101,42 +101,29 @@ Pack local (si besoin, ~10 min, 5 Go à télécharger) : voir `terrain/README.md
 - Versions des fichiers du pack = `date-empreinte` : le pack livré avec l'appli et celui du robot
   doivent avoir le même format, sinon l'iPhone retélécharge tout.
 
-## Tâche en cours : refondre le créateur d'itinéraire (`planifier` dans `terrain/src/parcours.js`)
+## Le créateur d'itinéraire (`planifier` dans `terrain/src/parcours.js`)
 
-**Le problème** (signalé par l'utilisateur) : « Avec mon plein » + une semaine + via ferrata depuis
-Bédarieux ne proposait que la via ferrata des Balcons de l'Orb, à côté de chez lui. Cause : la
-méthode actuelle choisit **un seul coin** puis garde les lieux d'un **couloir étroit** (≤ 25 km)
-le long de l'aller-retour. Sur une semaine, ça donne très peu d'étapes (2 à 4), et des jours vides.
-Des correctifs intermédiaires sont déjà faits (le coin suit les envies, la durée est tenue avec des
-« journées sur place », « Avec mon plein » ne rétrécit plus sous 60 %), mais il faut **changer de
-méthode**.
+Refait le 25 octobre 2026 (problème : « Avec mon plein » + une semaine + via ferrata ne proposait
+que la via ferrata d'à côté). Méthode actuelle, **course d'orientation par insertion** :
 
-**La méthode à mettre en place : insertion façon « course d'orientation »** (orienteering).
+1. **Budget de route** = `rythme.conduiteH × 50 km/h × jours`, au plus le plein en « Avec mon plein »
+   (`kmMax` = km utiles × 0,82), au moins le trajet direct × 1,2 + 40 km (destination lointaine).
+2. **Ancres** : départ → destination, ou départ → coin → départ (boucle, surprends-moi, plein).
+   Le coin (`choisirCoin`) suit les envies (×3), la météo (« Beau temps ») et les favoris, à au plus
+   budget/5 du départ : l'aller-retour direct ne prend que la moitié du budget.
+3. **Candidats** : filtre strict par envies, niveau, déjà vus, météo ; joignables dans le budget
+   (ellipse autour des ancres) ; valeur = intérêt + envie + notes + météo ; 400 meilleurs.
+4. **`composerTournee`** : priorités d'abord (favoris, une étape par activité cochée), puis insertion
+   au meilleur rapport valeur / km ajoutés, espacement 3 km, variété ; puis **2-opt** (`deuxOpt`).
+5. `cle` = place dans la tournée → `decouperJours` (journées équilibrées) → **journées sur place
+   réparties** s'il manque des étapes → nuits (gratuites en premier) → `recalculerJour` (vraies routes).
 
-1. **Budget de route** (km de route) = `rythme.conduiteH × 50 km/h × jours` (×0,5 pour une
-   demi-journée) ; en « Avec mon plein », pas plus que les km utiles du plein.
-2. **Candidats** : les lieux qui répondent aux envies (filtre strict, comme aujourd'hui), au bon
-   niveau, pas déjà vus, à portée (`rectangle()` puis distance ≤ budget/2 du départ pour une boucle).
-   Valeur = `interet(l)` (+1,5 si envie, + bonus des notes, + effet météo, favoris très hauts).
-   Garder les ~400 meilleurs pour la vitesse.
-3. **Tournée de départ** : départ → arrivée (destination), ou départ → *coin* → départ pour une
-   boucle / surprends-moi / avec mon plein (le coin = `choisirCoin`, qui suit déjà les envies),
-   ou départ → destination → départ pour « boucle autour de… ».
-4. **Insertion** : tant que le budget tient et qu'on a moins de `jours × rythme.etapes` étapes,
-   insérer le candidat au meilleur rapport `valeur / km ajoutés` (distance à vol d'oiseau × 1,3),
-   à l'endroit de la tournée où il ajoute le moins ; espacement ≥ 3 km entre étapes.
-   Les favoris (« Plus tard ») et une étape par activité cochée sont insérés en priorité.
-5. **Démêler** la tournée (2-opt) pour supprimer les croisements et allers-retours.
-6. Donner à chaque étape `cle` = sa place dans la tournée (0…1), puis garder la suite actuelle
-   telle quelle : `decouperJours` (journées équilibrées), nuits (`choisirNuit`, gratuits en premier),
-   `recalculerJour` (vraies routes), allègement si arrivée après la nuit, alternatives.
-7. **Tests** à ajouter (`terrain/src/parcours.test.mjs`, pack France si présent) : une semaine
-   « via ferrata » depuis Bédarieux doit enchaîner ≥ 6 via ferrata différentes sur 7 jours ; un
-   week-end « patrimoine » Paris → Saint-Malo garde ≥ 4 étapes ; aucun jour > 1,5 × la conduite
-   du rythme ; pas d'aller-retour (la `cle` des étapes croît dans l'ordre de passage).
+Tests de non-régression : `terrain/src/parcours.test.mjs` (avec le pack France). Essais rapides :
+`node .cache/plein.mjs` (script local, non versionné : il charge le pack et appelle `planifier`).
 
-Script d'essai prêt : `node .cache/plein.mjs 50 viaferrata 7` (si `.cache/plein.mjs` n'existe plus,
-il charge `graphe.bin` + `lieux.json` et appelle `planifier` avec `mode: 'plein'`).
+Pistes d'amélioration : plusieurs coins pour les très longs voyages ; premier et dernier jour parfois
+longs quand le coin est loin (alerte « plus de N h de route ») ; remplir les journées sur place avec
+des idées proches (baignade, randonnée courte) même hors envies, en les proposant.
 
 ## Idées notées pour plus tard
 
