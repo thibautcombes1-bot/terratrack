@@ -3,7 +3,7 @@
 import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire } from '../../commun/routeur.js';
 import { preparerRoute, situer } from '../../server/itineraire.js';
-import { NUITS, dureeVisite, interet, plaitA } from './parcours.js';
+import { NUITS, aMonNiveau, dureeVisite, interet, plaitA } from './parcours.js';
 import { coucherSoleil } from './soleil.js';
 
 export const BOUTONS = {
@@ -61,7 +61,7 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
     .flatMap(([, n]) => n.types);
   const voulu = (l) => {
     if (l.categorie !== bouton || dejaPrevus.has(l.id)) return false;
-    if (bouton === 'decouvrir') return Boolean(l.nom);
+    if (bouton === 'decouvrir') return Boolean(l.nom) && aMonNiveau(l, plan.params.niveauMax);
     if (bouton === 'dormir') return typesNuit.length === 0 || typesNuit.includes(l.type);
     return true;
   };
@@ -74,11 +74,12 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
     .map(({ l }) => l);
   if (!proches.length) return { suggestions: [], resteMin: 0 };
 
-  const direct = itineraire(pack.graphe, position, cible);
+  const options = { eviterPeages: Boolean(plan.params.eviterPeages) };
+  const direct = itineraire(pack.graphe, position, cible, options);
   const resteMin = direct ? direct.secondes / 60 : 0;
   const coucher = coucherSoleil(jour.date, cible);
 
-  const avecDetours = detours(pack.graphe, position, cible, proches).map((s) => {
+  const avecDetours = detours(pack.graphe, position, cible, proches, options).map((s) => {
     const detourMin = (s.detourSec + s.marcheSec) / 60;
     const arretMin = bouton === 'decouvrir' ? dureeVisite(s) : regle.arretMin ?? 0;
     const atteindreMin = s.atteindreSec / 60;

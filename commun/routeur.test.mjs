@@ -37,6 +37,13 @@ test('prend le chemin le plus rapide, pas le plus court', () => {
   assert.deepEqual(t.coords.at(-1), [3.2, 44.0]);
 });
 
+test('éviter les péages : la petite route plutôt que l’A75, avec le vrai temps', () => {
+  const t = itineraire(g, A, C, { eviterPeages: true });
+  assert.equal(t.peage, false);
+  assert.equal(t.metres, 16000);
+  assert.ok(Math.abs(t.secondes - 2880) < 1, `${t.secondes}`);
+});
+
 test('respecte les sens uniques : retour par la petite route', () => {
   const t = itineraire(g, C, A);
   assert.equal(t.metres, 16000);

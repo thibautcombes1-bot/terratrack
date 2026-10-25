@@ -3,7 +3,7 @@
 // vrais temps de route (commun/routeur.js), nuits avant la tombée du jour.
 import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire, itineraireMulti } from '../../commun/routeur.js';
-import { cleOrdre, decouperJours, preparerRoute, selectionner } from '../../server/itineraire.js';
+import { cleOrdre, decouperJours, preparerRoute, selectionner, situer } from '../../server/itineraire.js';
 import { ajouterJours } from './outils.js';
 import { coucherSoleil } from './soleil.js';
 
@@ -28,7 +28,11 @@ export const NUITS = {
   gite: { nom: "Gîte, chambre d'hôte", types: ["Chambre d'hôte", 'Gîte', "Gîte d'étape", 'Hôtel'] },
   refuge: { nom: 'Refuge, cabane', types: ['Refuge', 'Cabane'] },
   bivouac: { nom: 'Bivouac', types: ['Bivouac', 'Abri (bivouac à vérifier)', 'Cabane'] },
+  // Aucun hébergement choisi : la journée s'arrête à la dernière étape.
+  debrouille: { nom: 'Je me débrouille', types: [] },
 };
+/** Niveau des activités, de 1 (facile) à 4 (très difficile). Une activité sans niveau connu reste proposée ; on écarte seulement ce qui dépasse. */
+export const aMonNiveau = (l, niveauMax) => !niveauMax || !l.niveauRang || l.niveauRang <= niveauMax;
 export const RYTHMES = {
   tranquille: { nom: 'Tranquille', etapes: 2, conduiteH: 2 },
   normal: { nom: 'Normal', etapes: 3, conduiteH: 3 },
@@ -36,7 +40,7 @@ export const RYTHMES = {
 };
 
 const MOTIFS_ENVIES = {
-  patrimoine: /château|ruines|archéolog|monument|église|chapelle|monastère|abbaye|pont ancien|tour|porte de ville|fort|manoir|aqueduc|musée|dolmen|menhir|histori/i,
+  patrimoine: /château|ruines|archéolog|monument|église|chapelle|monastère|abbaye|pont ancien|\btour\b|porte de ville|\bfort\b|manoir|aqueduc|musée|dolmen|menhir|histori/i,
   panoramas: /point de vue|sommet|belvédère|panorama|\bcol\b|\bmont\b|montagne/i,
   nature: /cascade|chute|grotte|arche|gorge|aven|lac|rivière|source|chaos|cirque|réserve|forêt/i,
   villages: /village|cité|bastide|Plus Beaux|Petite Cité|Détours/i,
@@ -65,8 +69,32 @@ export function interet(l) {
 export const plaitA = (l, envies) =>
   envies.some((e) => l.activite === e || (e === 'unesco' && l.unesco) || MOTIFS_ENVIES[e]?.test(texteLieu(l)));
 
+/** Les envies du début auxquelles un lieu répond. */
+export const enviesDe = (l, envies) =>
+  envies.filter((e) => l.activite === e || (e === 'unesco' && l.unesco) || MOTIFS_ENVIES[e]?.test(texteLieu(l)));
+
+/** Pourquoi ce lieu est dans le parcours, en lien avec les envies cochées au départ. */
+export function justifier(l, envies) {
+  const raisons = [];
+  const pour = enviesDe(l, envies).map((e) => ENVIES[e]);
+  raisons.push(pour.length ? `Choisi pour : ${pour.join(', ')}` : 'Lieu remarquable sur ta route');
+  if (l.unesco) raisons.push('patrimoine mondial UNESCO');
+  for (const label of l.labels ?? []) raisons.push(label);
+  if (l.classe) raisons.push('monument historique classé');
+  if ((l.notoriete ?? 0) >= 8) raisons.push(`très connu (cité dans ${l.notoriete} Wikipédias)`);
+  else if ((l.notoriete ?? 0) >= 4) raisons.push('assez connu');
+  // Le niveau et ce qui attend sur place (longueur, dénivelé, cotations, variantes).
+  if (l.niveau) raisons.push(`niveau ${l.niveau.toLowerCase()}${l.niveauTexte ? ` : ${l.niveauTexte}` : ''}`);
+  else if (l.niveauTexte) raisons.push(l.niveauTexte);
+  for (const d of l.details ?? []) raisons.push(d);
+  if (l.activite === 'randonnee' && !l.details && l.longueurKm) raisons.push(`${l.longueurKm} km`);
+  return raisons.join(' · ');
+}
+
 /** Temps de visite conseillé (minutes). */
 export function dureeVisite(l) {
+  // Durée donnée par le pack (marche selon l'effort, via ferrata selon la cotation).
+  if (l.activite && l.dureeH) return Math.min(360, Math.max(45, Math.round(l.dureeH * 60)));
   // Une randonnée de 8 km prend environ 2 h 30 ; on plafonne à une demi-journée.
   if (l.activite === 'randonnee') return Math.min(240, Math.max(90, Math.round(((l.longueurKm ?? 8) / 3.5) * 60)));
   if (l.activite === 'viaferrata') return 180;
@@ -80,24 +108,42 @@ export function dureeVisite(l) {
   return 30;
 }
 
-const resume = (l) => ({ id: l.id, nom: l.nom, type: l.type, activite: l.activite, unesco: l.unesco, longueurKm: l.longueurKm, lat: l.lat, lon: l.lon, labels: l.labels, categorie: l.categorie, horaires: l.horaires, date: l.date, verifie: l.verifie, tel: l.tel, site: l.site });
+const resume = (l) => ({ notoriete: l.notoriete, classe: l.classe, id: l.id, nom: l.nom, type: l.type, activite: l.activite, unesco: l.unesco, longueurKm: l.longueurKm, niveau: l.niveau, niveauRang: l.niveauRang, niveauTexte: l.niveauTexte, details: l.details, dureeH: l.activite ? l.dureeH : undefined, lat: l.lat, lon: l.lon, labels: l.labels, categorie: l.categorie, horaires: l.horaires, date: l.date, verifie: l.verifie, tel: l.tel, site: l.site });
 
 /** « Surprends-moi » : le coin le plus riche en lieux remarquables à bonne distance. */
-function choisirCoin(lieux, depart, porteeKm) {
-  const remarquables = lieux.filter((l) => l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5);
+function choisirCoin(lieux, depart, porteeKm, favoris = new Set()) {
+  // Les lieux gardés « pour plus tard » attirent le voyage vers leur coin.
+  const remarquables = lieux.filter((l) => favoris.has(l.id) || (l.categorie === 'decouvrir' && l.nom && interet(l) >= 2.5));
   let meilleur = null;
   let meilleurScore = -Infinity;
   for (const l of remarquables) {
     const d = distanceKm(depart, l);
     if (d < porteeKm * 0.25 || d > porteeKm) continue;
     let score = (Math.random() - 0.5) * 2;
-    for (const autre of remarquables) if (distanceKm(l, autre) < 15) score += interet(autre);
+    for (const autre of remarquables) if (distanceKm(l, autre) < 15) score += favoris.has(autre.id) ? 6 : interet(autre);
     if (score > meilleurScore) {
       meilleurScore = score;
       meilleur = l;
     }
   }
   return meilleur && { nom: meilleur.nom, lat: meilleur.lat, lon: meilleur.lon };
+}
+
+/** « Je me débrouille » : la nuit se passe là où s'arrête la journée, près de la commune la plus proche. */
+function nuitLibre(pack, pres) {
+  // Un village ou une ville parle plus qu'un hameau, s'il y en a un à moins de 10 km.
+  const plusProche = (liste) => liste.reduce((a, b) => (distanceKm(pres, a) <= distanceKm(pres, b) ? a : b), liste[0]);
+  const village = plusProche(pack.communes.filter((c) => c.type !== 'hamlet'));
+  const commune = village && distanceKm(pres, village) < 10 ? village : plusProche(pack.communes);
+  return {
+    id: `libre-${pres.lat}-${pres.lon}`,
+    nom: distanceKm(pres, commune) < 10 ? `Nuit libre vers ${commune.nom}` : 'Nuit libre',
+    type: 'Nuit libre (tu te débrouilles)',
+    lat: pres.lat,
+    lon: pres.lon,
+    genre: 'nuit',
+    libre: true,
+  };
 }
 
 /** Un endroit où dormir près de `pres`, du type souhaité, le plus vite atteint. */
@@ -127,7 +173,8 @@ export function choisirNuit(pack, pres, types, exclus = new Set()) {
 export function recalculerJour(pack, jour, conduiteMaxH) {
   const g = pack.graphe;
   const points = [jour.debut, ...jour.etapes, jour.fin];
-  const trajet = itineraireMulti(g, points);
+  const options = { eviterPeages: Boolean(jour.eviterPeages) };
+  const trajet = itineraireMulti(g, points, options);
   if (!trajet) {
     jour.alertes = ['Une étape est injoignable par la route depuis le parcours.'];
     return jour;
@@ -138,7 +185,7 @@ export function recalculerJour(pack, jour, conduiteMaxH) {
     e.arriveeMin = minute;
     minute += e.visiteMin;
     // Détour : passer par l'étape plutôt qu'aller directement de la précédente à la suivante.
-    const direct = itineraire(g, points[k], points[k + 2]);
+    const direct = itineraire(g, points[k], points[k + 2], options);
     e.detourMin = direct
       ? Math.max(0, (trajet.troncons[k].secondes + trajet.troncons[k + 1].secondes - direct.secondes) / 60)
       : 0;
@@ -165,18 +212,20 @@ export function recalculerJour(pack, jour, conduiteMaxH) {
 
 /**
  * Propose un parcours. `p` : { depart, mode: 'destination'|'boucle'|'surprise', destination,
- * jours, date, heure (min), rythme, envies[], nuits[] }.
+ * jours, date, heure (min), rythme, envies[], nuits[], niveauMax (1 à 3, ou rien),
+ * favoris[] (identifiants des lieux gardés « pour plus tard ») }.
  */
 export function planifier(pack, p) {
+  const favoris = new Set(p.favoris ?? []);
   const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;
   const nbJours = p.jours <= 1 ? 1 : Math.round(p.jours);
   const boucle = p.mode !== 'destination';
   const porteeKm = rythme.conduiteH * 45 * Math.max(1, nbJours) * (boucle ? 0.35 : 0.8);
   const cible =
-    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm) ?? p.depart;
+    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris) ?? p.depart;
 
   const loin = distanceKm(p.depart, cible) > 1.5;
-  const base = loin ? itineraire(pack.graphe, p.depart, cible) : null;
+  const base = loin ? itineraire(pack.graphe, p.depart, cible, { eviterPeages: Boolean(p.eviterPeages) }) : null;
   if (loin && !base) throw new Error('Pas de route trouvée vers cette destination dans la région.');
   const route = preparerRoute(base ? base.coords : [[p.depart.lon, p.depart.lat]]);
   const rayonCoin = p.mode === 'destination' ? 6 : Math.min(25, Math.max(8, porteeKm * 0.3));
@@ -187,14 +236,29 @@ export function planifier(pack, p) {
   const exclus = new Set(p.exclus ?? []);
 
   const candidats = [];
+  // Lieux remarquables du trajet qui ne répondent pas aux envies : proposés seulement en alternative.
+  const autres = [];
+  const favorisAPortee = [];
   for (const l of pack.lieux) {
+    // Un lieu gardé « pour plus tard » passe avant les envies et le niveau, s'il est à portée (couloir élargi).
+    if (favoris.has(l.id)) {
+      const position = !exclus.has(l.id) && cleOrdre(l, { ...ctx, largeur: largeur * 2 });
+      if (position) favorisAPortee.push({ ...l, ...position, favori: true, qualite: interet(l) + 3, score: 10, dureeH: dureeVisite(l) / 60 });
+      continue;
+    }
     // Les baignades sont des « pauses » ; elles deviennent des étapes si on en a envie.
     const etapePossible = l.categorie === 'decouvrir' || (l.activite && p.envies.includes(l.activite));
     if (!etapePossible || !l.nom || exclus.has(l.id) || distanceKm(p.depart, l) < 1) continue;
     // Une activité qu'on n'a pas choisie ne remplit pas la journée à la place des visites.
     if (ACTIVITES.has(l.activite) && !p.envies.includes(l.activite)) continue;
+    if (!aMonNiveau(l, p.niveauMax)) continue;
     const position = cleOrdre(l, ctx);
     if (!position) continue;
+    // Ce qui est coché est un filtre strict : seulement des lieux qui y répondent.
+    if (p.envies.length && !plaitA(l, p.envies)) {
+      if (interet(l) >= 1.5) autres.push({ ...l, ...position, interet: interet(l), score: interet(l) - position.ecart / largeur });
+      continue;
+    }
     // L'envie compte, mais un lieu doit aussi être remarquable (labels, notoriété, type).
     // Tes notes vérifiées sur place favorisent (ou écartent) les lieux du même type.
     const qualite = interet(l) + (plaitA(l, p.envies) ? 1.5 : 0) + (p.bonusParType?.[l.activite ?? l.type] ?? 0);
@@ -211,7 +275,8 @@ export function planifier(pack, p) {
   }
   // De la variété : pas plus d'un tiers du voyage avec le même type de lieu.
   const parType = new Map();
-  const maxParType = Math.max(2, Math.ceil(nbEtapes / 3));
+  // Avec une seule envie (ex. via ferrata), on veut justement que des lieux de ce type.
+  const maxParType = p.envies.length <= 1 ? Infinity : Math.max(2, Math.ceil(nbEtapes / 3));
   retenus = [...retenus]
     .sort((a, b) => b.score - a.score)
     .filter((c) => {
@@ -220,6 +285,64 @@ export function planifier(pack, p) {
       return parType.get(cle) <= maxParType;
     });
   const choisis = selectionner(retenus, nbEtapes, 3);
+  // Chaque activité cochée doit apparaître si elle est à portée : on remplace l'étape la plus faible.
+  const avertissements = [];
+  for (const envie of p.envies.filter((e) => ACTIVITES.has(e) || e === 'unesco')) {
+    const repond = (c) => c.activite === envie || (envie === 'unesco' && c.unesco);
+    if (choisis.some(repond)) continue;
+    const meilleur = candidats.filter(repond).sort((a, b) => b.score - a.score)[0];
+    if (!meilleur) {
+      avertissements.push(`Pas de ${ENVIES[envie].toLowerCase()} près de ce trajet : essaie « Boucle et retour » ou une autre destination.`);
+      continue;
+    }
+    const remplacable = choisis.filter((c) => !enviesDe(c, p.envies).some((e) => ACTIVITES.has(e) || e === 'unesco'));
+    if (remplacable.length >= 1 && choisis.length >= nbEtapes) choisis.splice(choisis.indexOf(remplacable.sort((a, b) => a.score - b.score)[0]), 1);
+    choisis.push(meilleur);
+  }
+  // Les favoris à portée sont ajoutés d'office, à la place des étapes les plus faibles.
+  for (const f of favorisAPortee) {
+    const remplacable = choisis.filter((c) => !c.favori && !enviesDe(c, p.envies).some((e) => ACTIVITES.has(e) || e === 'unesco'));
+    if (choisis.length >= nbEtapes && remplacable.length) choisis.splice(choisis.indexOf(remplacable.sort((a, b) => a.score - b.score)[0]), 1);
+    choisis.push(f);
+  }
+  choisis.sort((a, b) => a.cle - b.cle);
+
+  // Pas assez de lieux pour ce qui est coché : on propose (sans les imposer) la même envie
+  // un peu plus loin du trajet, puis d'autres lieux remarquables sur le trajet.
+  const alternatives = [];
+  if (p.envies.length && choisis.length < nbEtapes) {
+    const pris = new Set(choisis.map((c) => c.id));
+    for (const envie of p.envies) {
+      if (choisis.some((c) => enviesDe(c, [envie]).length)) continue;
+      const plusLoin = pack.lieux
+        // Pas les grands espaces (parc national, massif…) : il faut un endroit où s'arrêter.
+        .filter((l) => l.nom && !pris.has(l.id) && !exclus.has(l.id) && enviesDe(l, [envie]).length && !/parc (national|naturel)|massif|réserve/i.test(`${l.nom} ${l.type}`))
+        .map((l) => ({ l, sit: situer(route, l) }))
+        .filter(({ sit }) => sit.ecart > largeur && sit.ecart <= 40)
+        .sort((a, b) => a.sit.ecart - b.sit.ecart)
+        .slice(0, 2);
+      for (const { l, sit } of plusLoin)
+        alternatives.push({
+          ...resume(l),
+          cle: route.longueur ? sit.s / route.longueur : 0,
+          pourquoi: `${ENVIES[envie]}, un peu plus loin : à ${Math.round(sit.ecart)} km de ton trajet${justifier(l, []).replace(/^Lieu remarquable sur ta route/, '')}`,
+          genre: 'plus-loin',
+        });
+    }
+    // Une idée par portion du trajet (une par jour), la meilleure de chaque portion ;
+    // on complète ensuite avec les suivantes s'il en manque.
+    const idees = [];
+    const portions = Math.max(2, nbJours);
+    for (let k = 0; k < portions; k++) {
+      const meilleure = autres.filter((l) => l.cle >= k / portions && l.cle < (k + 1) / portions).sort((a, b) => b.score - a.score)[0];
+      if (meilleure) idees.push(meilleure);
+    }
+    for (const l of [...autres].sort((a, b) => b.score - a.score)) if (idees.length < 3 && l.interet >= 2.4 && !idees.includes(l)) idees.push(l);
+    for (const l of idees) {
+      const raisons = justifier(l, []).replace(/^Lieu remarquable sur ta route( · )?/, '');
+      alternatives.push({ ...resume(l), cle: l.cle, pourquoi: `Autre idée sur ton trajet${raisons ? ` · ${raisons}` : ''}`, genre: 'autre' });
+    }
+  }
   const fin = boucle ? p.depart : cible;
   const groupes = choisis.length ? decouperJours(choisis, nbJours, { depart: p.depart, fin, vitesse: 45 }) : [[]];
 
@@ -231,14 +354,17 @@ export function planifier(pack, p) {
     let finJour;
     if (dernier) finJour = { nom: fin.nom, lat: fin.lat, lon: fin.lon, genre: boucle ? 'retour' : 'arrivee' };
     else {
-      finJour = choisirNuit(pack, etapes.at(-1) ?? debut, p.nuits, nuitsPrises) ?? { ...resume(etapes.at(-1)), genre: 'nuit' };
+      finJour = p.nuits.includes('debrouille')
+        ? nuitLibre(pack, etapes.at(-1) ?? debut)
+        : choisirNuit(pack, etapes.at(-1) ?? debut, p.nuits, nuitsPrises) ?? { ...resume(etapes.at(-1)), genre: 'nuit' };
       nuitsPrises.add(finJour.id);
     }
     const jour = {
       date: ajouterJours(p.date, i),
       heureDepart: i === 0 ? p.heure : 9 * 60,
+      eviterPeages: Boolean(p.eviterPeages),
       debut,
-      etapes: etapes.map((e) => ({ ...resume(e), cle: e.cle, score: e.score, visiteMin: dureeVisite(e) })),
+      etapes: etapes.map((e) => ({ ...resume(e), cle: e.cle, score: e.score, visiteMin: dureeVisite(e), pourquoi: `${e.favori ? '⭐ De ta liste « Plus tard » · ' : ''}${justifier(e, p.envies)}` })),
       fin: finJour,
     };
     recalculerJour(pack, jour, rythme.conduiteH);
@@ -252,7 +378,14 @@ export function planifier(pack, p) {
     jours.push(jour);
     debut = { nom: finJour.nom, lat: finJour.lat, lon: finJour.lon };
   });
-  return { params: p, cible: { nom: cible.nom, lat: cible.lat, lon: cible.lon }, jours, cree: Date.now() };
+  // Chaque alternative est rattachée au jour où elle tombe sur le trajet.
+  for (const a of alternatives) {
+    const j = groupes.findIndex((g) => g.length && g.at(-1).cle >= a.cle);
+    a.jour = j < 0 ? jours.length - 1 : j;
+  }
+  const favorisInclus = jours.flatMap((j) => j.etapes).filter((e) => favoris.has(e.id)).length;
+  // Pas encore validé : le compte rendu doit être relu avant le départ.
+  return { params: p, cible: { nom: cible.nom, lat: cible.lat, lon: cible.lon }, jours, avertissements, alternatives, favorisInclus, valide: false, cree: Date.now() };
 }
 
 /** Totaux du parcours : distance, temps de route, péages identifiés, détours ajoutés. */
@@ -293,7 +426,7 @@ export function ajouterEtape(pack, plan, j, lieu) {
       meilleur = i;
     }
   }
-  jour.etapes.splice(meilleur, 0, { ...resume(lieu), visiteMin: lieu.categorie === 'decouvrir' ? dureeVisite(lieu) : lieu.categorie === 'manger' ? 45 : 20 });
+  jour.etapes.splice(meilleur, 0, { ...resume(lieu), pourquoi: justifier(lieu, plan.params.envies), visiteMin: lieu.categorie === 'decouvrir' || lieu.activite ? dureeVisite(lieu) : lieu.categorie === 'manger' ? 45 : 20 });
   recalculerJour(pack, jour, conduiteMax(plan));
 }
 
@@ -309,7 +442,7 @@ export function dormirIci(pack, plan, j, lieu) {
   jour.fin = { ...resume(lieu), genre: 'nuit' };
   const nuit = { nom: lieu.nom, lat: lieu.lat, lon: lieu.lon };
   if (j === plan.jours.length - 1) {
-    plan.jours.push({ date: ajouterJours(jour.date, 1), heureDepart: 9 * 60, debut: nuit, etapes: reste, fin: ancienneFin });
+    plan.jours.push({ date: ajouterJours(jour.date, 1), heureDepart: 9 * 60, eviterPeages: jour.eviterPeages, debut: nuit, etapes: reste, fin: ancienneFin });
   } else {
     const suivant = plan.jours[j + 1];
     suivant.debut = nuit;
@@ -333,4 +466,69 @@ export function changerDestination(pack, plan, j, destination, depuis) {
   });
   plan.jours = [...plan.jours.slice(0, j), ...nouveau.jours];
   plan.cible = nouveau.cible;
+}
+
+// ---------- Compte rendu avant le départ ----------
+
+/** Choisit `n` éléments répartis le long du trajet (triés par position). */
+function repartis(liste, n) {
+  if (liste.length <= n) return liste;
+  return Array.from({ length: n }, (_, i) => liste[Math.floor(((i + 0.5) * liste.length) / n)]);
+}
+
+/**
+ * Ce qu'il y a sur le trajet de chaque jour, en plus des étapes : eau potable, ravitaillement,
+ * baignades à moins de 1,5 km de la route, et d'autres nuits possibles près de l'étape du soir.
+ */
+export function surLeTrajet(pack, plan) {
+  const pris = new Set(plan.jours.flatMap((j) => [...j.etapes.map((e) => e.id), j.fin.id]));
+  const voulues = Object.entries(NUITS)
+    .filter(([cle]) => plan.params.nuits.includes(cle))
+    .flatMap(([, n]) => n.types);
+  return plan.jours.map((j) => {
+    const coords = j.coords.length > 1 ? j.coords : [[j.debut.lon, j.debut.lat], [j.fin.lon, j.fin.lat]];
+    const route = preparerRoute(coords);
+    const lons = coords.map((c) => c[0]);
+    const lats = coords.map((c) => c[1]);
+    const [o, e, s, n] = [Math.min(...lons) - 0.03, Math.max(...lons) + 0.03, Math.min(...lats) - 0.03, Math.max(...lats) + 0.03];
+    const proches = pack.lieux
+      .filter((l) => !pris.has(l.id) && l.lon >= o && l.lon <= e && l.lat >= s && l.lat <= n)
+      .map((l) => ({ l, sit: situer(route, l) }))
+      .filter(({ sit }) => sit.ecart <= 1.5)
+      .sort((a, b) => a.sit.s - b.sit.s)
+      .map(({ l, sit }) => ({ ...resume(l), kmDepuisDepart: Math.round(sit.s), ecartKm: Math.round(sit.ecart * 10) / 10 }));
+    const nuits =
+      j.fin.genre === 'nuit'
+        ? pack.lieux
+            .filter((l) => l.categorie === 'dormir' && l.nom && l.id !== j.fin.id && distanceKm(j.fin, l) < 12)
+            .sort((a, b) => (voulues.includes(b.type) - voulues.includes(a.type)) || distanceKm(j.fin, a) - distanceKm(j.fin, b))
+            .slice(0, 3)
+            .map((l) => ({ ...resume(l), distanceKm: Math.round(distanceKm(j.fin, l) * 10) / 10 }))
+        : [];
+    return {
+      eau: repartis(proches.filter((l) => l.type === 'Eau potable'), 3),
+      manger: repartis(proches.filter((l) => l.categorie === 'manger' && l.nom && /Épicerie|Boulangerie|ferme|Marché|Fromagerie|Supermarché/.test(l.type)), 4),
+      baignade: repartis(proches.filter((l) => l.activite === 'baignade' && l.nom), 2),
+      nuits,
+    };
+  });
+}
+
+/** Remplace l'étape du soir du jour `j` ; le lendemain part de là. */
+export function changerNuit(pack, plan, j, lieu) {
+  plan.jours[j].fin = { ...resume(lieu), genre: 'nuit' };
+  recalculerJour(pack, plan.jours[j], conduiteMax(plan));
+  if (plan.jours[j + 1]) {
+    plan.jours[j + 1].debut = { nom: lieu.nom, lat: lieu.lat, lon: lieu.lon };
+    recalculerJour(pack, plan.jours[j + 1], conduiteMax(plan));
+  }
+}
+
+/** Retire les étapes décochées dans le compte rendu. */
+export function garderEtapes(pack, plan, idsGardes) {
+  for (const jour of plan.jours) {
+    const avant = jour.etapes.length;
+    jour.etapes = jour.etapes.filter((e) => idsGardes.has(e.id));
+    if (jour.etapes.length !== avant) recalculerJour(pack, jour, conduiteMax(plan));
+  }
 }

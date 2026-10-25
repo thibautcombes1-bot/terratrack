@@ -26,7 +26,7 @@ export function verifierPassages(position, precisionM, lieux) {
     if (metres > RAYON_M) continue;
     const ancien = passages.get(l.id);
     if (!ancien || ancien.metres > metres || Date.now() - ancien.date > VALIDITE_MS) {
-      passages.set(l.id, { id: l.id, nom: l.nom, date: Date.now(), metres: Math.round(metres), precisionM: Math.round(precisionM) });
+      passages.set(l.id, { id: l.id, nom: l.nom, lat: l.lat, lon: l.lon, date: Date.now(), metres: Math.round(metres), precisionM: Math.round(precisionM) });
       valides.push(l);
     }
   }
@@ -59,6 +59,7 @@ export function noter(lieu, etoiles, mots = []) {
 }
 
 export const noteDe = (id) => notes.get(id);
+export const tousLesPassages = () => [...passages.values()];
 export const toutesLesNotes = () => [...notes.values()];
 
 /**

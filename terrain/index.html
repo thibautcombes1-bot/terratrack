@@ -23,12 +23,18 @@
     <section class="tiroir" id="tiroir">
       <button class="poignee" id="poignee" aria-label="Agrandir ou réduire"></button>
       <nav class="onglets" role="tablist">
-        <button data-onglet="preparer" aria-selected="true">Préparer</button>
-        <button data-onglet="parcours" aria-selected="false">Parcours</button>
-        <button data-onglet="route" aria-selected="false">En route</button>
+        <button data-onglet="historique" aria-selected="false">Historique</button>
+        <button data-onglet="parcours" aria-selected="true">Parcours</button>
+        <button data-onglet="plus-tard" aria-selected="false">Plus tard</button>
       </nav>
 
       <div class="contenu">
+        <!-- Dans « Parcours » : avant, pendant, et le détail -->
+        <nav class="sous-onglets" id="sous-onglets">
+          <button data-vue="preparer" aria-selected="true">Préparer</button>
+          <button data-vue="parcours" aria-selected="false">Parcours</button>
+          <button data-vue="route" aria-selected="false">En route</button>
+        </nav>
         <!-- Avant de partir -->
         <form id="preparer" class="panneau" autocomplete="off">
           <label class="champ">D'où pars-tu ?
@@ -52,10 +58,15 @@
           </div>
           <div class="titre">Rythme</div>
           <div class="ligne" data-groupe="rythme" data-unique></div>
+          <div class="titre">Péages</div>
+          <div class="ligne" data-groupe="peages" data-unique></div>
           <div class="titre">Ce qui te plaît</div>
           <div class="ligne" data-groupe="envies"></div>
+          <div class="titre">Niveau des activités</div>
+          <div class="ligne" data-groupe="niveau" data-unique></div>
           <div class="titre">Pour dormir</div>
           <div class="ligne" data-groupe="nuits"></div>
+          <p class="info" id="info-plus-tard" hidden></p>
           <p class="info" id="deja-vus" hidden></p>
           <p class="erreur" id="erreur-preparer" hidden></p>
           <button class="principal" type="submit">Proposer un parcours</button>
@@ -87,6 +98,12 @@
           </div>
           <div id="suggestions"></div>
         </div>
+
+        <!-- Voyages faits et lieux déjà faits -->
+        <div id="historique" class="panneau" hidden></div>
+
+        <!-- Lieux gardés pour un prochain road trip -->
+        <div id="plus-tard" class="panneau" hidden></div>
       </div>
       <footer class="limites" id="limites"></footer>
     </section>
@@ -102,6 +119,26 @@
           <button class="principal" value="valider" id="noter-valider" disabled>Enregistrer</button>
         </div>
       </form>
+    </dialog>
+    <dialog id="menu-lieu">
+      <form method="dialog">
+        <div class="nom" id="menu-nom"></div>
+        <div id="menu-groupes"></div>
+        <button class="secondaire large" value="fermer">Fermer</button>
+      </form>
+    </dialog>
+    <dialog id="souvenirs">
+      <form method="dialog">
+        <div class="nom" id="souv-nom"></div>
+        <small class="info" id="souv-info"></small>
+        <textarea id="souv-commentaire" rows="3" placeholder="Ton commentaire : ce qui t’a plu, un conseil, l’accès…"></textarea>
+        <div class="photos" id="souv-photos"></div>
+        <label class="secondaire bouton-photo">📷 Ajouter des photos<input type="file" id="souv-fichier" accept="image/*" multiple /></label>
+        <button class="principal" value="fermer">Terminé</button>
+      </form>
+    </dialog>
+    <dialog id="photo-grande">
+      <form method="dialog"><img id="photo-image" alt="" /><button class="secondaire">Fermer</button></form>
     </dialog>
     <div class="chargement" id="chargement"><div>Chargement…</div></div>
     <script type="module" src="./src/main.js"></script>

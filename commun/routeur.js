@@ -161,11 +161,15 @@ class Tas {
   }
 }
 
+/** Éviter les péages : une route à péage « coûte » 30 fois son temps, sans être interdite. */
+const PENALITE_PEAGE = 30;
+
 /**
  * Dijkstra depuis `source` (ou vers `source` si `inverse`). S'arrête sur `cible` si fournie.
+ * Avec `eviterPeages`, les routes à péage ne sont prises que s'il n'y a vraiment pas d'autre chemin.
  * @returns {{ temps: Float64Array, precedent: Int32Array }} temps en secondes, arc d'arrivée
  */
-export function dijkstra(g, source, { inverse = false, cible = -1, limite = Infinity } = {}) {
+export function dijkstra(g, source, { inverse = false, cible = -1, limite = Infinity, eviterPeages = false } = {}) {
   const adj = inverse ? g.arriere : g.avant;
   const temps = new Float64Array(g.n).fill(Infinity);
   const precedent = new Int32Array(g.n).fill(-1);
@@ -179,7 +183,7 @@ export function dijkstra(g, source, { inverse = false, cible = -1, limite = Infi
     if (tu > limite) break;
     for (let k = adj.debut[u]; k < adj.debut[u + 1]; k++) {
       const v = adj.cible[k];
-      const t = tu + adj.temps[k];
+      const t = tu + (eviterPeages && g.aretes.p[adj.arete[k]] ? adj.temps[k] * PENALITE_PEAGE : adj.temps[k]);
       if (t < temps[v]) {
         temps[v] = t;
         precedent[v] = k;
@@ -203,12 +207,12 @@ function pointsArete(g, e, sens) {
  * Itinéraire entre deux points : durée, distance, péage, routes empruntées, tracé.
  * @returns {null | { secondes, metres, peage, routes: string[], coords: number[][] }}
  */
-export function itineraire(g, de, vers) {
+export function itineraire(g, de, vers, { eviterPeages = false } = {}) {
   const s = plusProcheSommet(g, de);
   const c = plusProcheSommet(g, vers);
   if (s < 0 || c < 0) return null;
   if (s === c) return { secondes: 0, metres: 0, peage: false, routes: [], coords: [[g.lon[s], g.lat[s]]] };
-  const { temps, precedent } = dijkstra(g, s, { cible: c });
+  const { temps, precedent } = dijkstra(g, s, { cible: c, eviterPeages });
   if (!Number.isFinite(temps[c])) return null;
   const arcs = [];
   for (let v = c; v !== s; ) {
@@ -218,19 +222,22 @@ export function itineraire(g, de, vers) {
   }
   arcs.reverse();
   let metres = 0;
+  let secondes = 0;
   let peage = false;
   const routes = [];
   const coords = [];
   for (const k of arcs) {
     const e = g.avant.arete[k];
     metres += g.aretes.m[e];
+    // Le vrai temps de route, sans la pénalité qui sert seulement à choisir le chemin.
+    secondes += g.avant.temps[k];
     if (g.aretes.p[e]) peage = true;
     const nom = g.noms[g.aretes.n[e]];
     if (nom && routes.at(-1) !== nom) routes.push(nom);
     const points = pointsArete(g, e, g.avant.sens[k]);
     coords.push(...(coords.length ? points.slice(1) : points));
   }
-  return { secondes: temps[c], metres, peage, routes, coords };
+  return { secondes, metres, peage, routes, coords };
 }
 
 /** Sommet de départ d'un arc (CSR « avant ») arrivant sur `v`. */
@@ -240,10 +247,10 @@ function trouverOrigine(g, k, v) {
 }
 
 /** Itinéraire passant par plusieurs points ; renvoie aussi chaque tronçon. */
-export function itineraireMulti(g, points) {
+export function itineraireMulti(g, points, options = {}) {
   const troncons = [];
   for (let i = 1; i < points.length; i++) {
-    const t = itineraire(g, points[i - 1], points[i]);
+    const t = itineraire(g, points[i - 1], points[i], options);
     if (!t) return null;
     troncons.push(t);
   }
@@ -266,11 +273,11 @@ const accesAPied = (g, sommet, lieu) => {
  * Détour de chaque lieu sur le trajet `depuis` → `vers` : temps ajouté (s) en passant par lui,
  * temps pour l'atteindre, et marche éventuelle depuis la route. Deux Dijkstra suffisent pour tous.
  */
-export function detours(g, depuis, vers, lieux) {
+export function detours(g, depuis, vers, lieux, { eviterPeages = false } = {}) {
   const s = plusProcheSommet(g, depuis);
   const d = plusProcheSommet(g, vers);
-  const aller = dijkstra(g, s).temps;
-  const retour = dijkstra(g, d, { inverse: true }).temps;
+  const aller = dijkstra(g, s, { eviterPeages }).temps;
+  const retour = dijkstra(g, d, { inverse: true, eviterPeages }).temps;
   const direct = aller[d];
   return lieux
     .map((lieu) => {
