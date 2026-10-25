@@ -506,13 +506,30 @@ const leger = (l) => {
 };
 const communesGardees = communes.filter((c) => dansRegion(c) && (REGION.id !== 'france' || ['city', 'town', 'village'].includes(c.type)));
 fs.writeFileSync(new URL('lieux.json', SORTIE), JSON.stringify({ lieux: tous.filter(dansRegion).map(leger), communes: communesGardees }));
-fs.copyFileSync(new URL(REGION.carte, BRUT), new URL('carte.pmtiles', SORTIE));
+// La carte change rarement : sans nouvelle carte dans .brut, on garde celle du pack déjà publié
+// (sa ligne de meta-precedent.json), et l'appli n'a pas à la retélécharger.
+const carteNeuve = fs.existsSync(new URL(REGION.carte, BRUT));
+if (carteNeuve) fs.copyFileSync(new URL(REGION.carte, BRUT), new URL('carte.pmtiles', SORTIE));
+const lireJSON = (nom) => (fs.existsSync(new URL(nom, BRUT)) ? JSON.parse(fs.readFileSync(new URL(nom, BRUT), 'utf8')) : null);
+// Version de la carte : le jour de la construction Protomaps dont elle est extraite.
+const versionCarte = fs.existsSync(new URL('carte-version.txt', BRUT)) ? fs.readFileSync(new URL('carte-version.txt', BRUT), 'utf8').trim() : dateDonnees;
 const taille = (f) => fs.statSync(new URL(f, SORTIE)).size;
+// Chaque fichier a sa taille et sa version : l'appli ne télécharge que ce qui a changé.
+const fichiers = {
+  'graphe.bin': { taille: taille('graphe.bin'), version: dateDonnees },
+  'lieux.json': { taille: taille('lieux.json'), version: dateDonnees },
+};
+if (carteNeuve) fichiers['carte.pmtiles'] = { taille: taille('carte.pmtiles'), version: versionCarte };
+else if (lireJSON('meta-precedent.json')?.fichiers?.['carte.pmtiles']) fichiers['carte.pmtiles'] = lireJSON('meta-precedent.json').fichiers['carte.pmtiles'];
+else throw new Error(`Pas de carte : ni .brut/${REGION.carte}, ni .brut/meta-precedent.json`);
 const meta = {
-  ...REGION,
+  id: REGION.id,
+  nom: REGION.nom,
+  bbox: REGION.bbox,
+  format: 2,
   version: dateDonnees,
   donnees: `OpenStreetMap (© contributeurs, ODbL) au ${dateDonnees}, Wikidata (CC0), carte Protomaps`,
-  fichiers: Object.fromEntries(['carte.pmtiles', 'graphe.bin', 'lieux.json'].map((f) => [f, taille(f)])),
+  fichiers,
 };
 fs.writeFileSync(new URL('meta.json', SORTIE), JSON.stringify(meta, null, 1));
 
@@ -520,4 +537,4 @@ const parCategorie = {};
 for (const l of tous) parCategorie[l.categorie] = (parCategorie[l.categorie] ?? 0) + 1;
 console.log(`graphe : ${graphe.sommets.length / 2} sommets, ${graphe.aretes.a.length} arêtes`);
 console.log('lieux :', parCategorie, `communes : ${communes.length}`);
-console.log('tailles (Mo) :', Object.fromEntries(Object.entries(meta.fichiers).map(([f, o]) => [f, (o / 1e6).toFixed(1)])));
+console.log('tailles (Mo) :', Object.fromEntries(Object.entries(meta.fichiers).map(([f, o]) => [f, `${(o.taille / 1e6).toFixed(1)} (${o.version})`])));

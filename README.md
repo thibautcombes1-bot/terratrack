@@ -21,7 +21,29 @@ Ce qu'il y a dedans :
 - 🤖 **IA au choix** : Ollama en local (gratuit, privé) par défaut, ou Claude en ligne avec une clé.
 - 📡 **Option radio mesh**, éteinte par défaut : nœuds MeshCore et Meshtastic en direct, préférence pour les lieux couverts, points hauts radio.
 
-## Démarrer
+## L'appli de terrain : iPhone, hors ligne, toute la France
+
+Dans `terrain/`, le compagnon de route, qui marche **sans réseau** sur toute la France métropolitaine et la Corse :
+
+- **Préparer** : départ, destination ou boucle, durée, rythme, péages, envies (randonnée, via ferrata, escalade, canoë, baignade, UNESCO, patrimoine…), niveau des activités, nuits (camping, camping gratuit, bivouac, « je me débrouille »…).
+- **Parcours** : chaque étape dit pourquoi elle est là, un compte rendu est à valider avant le départ, et le guidage passe par Waze ou Plans.
+- **En route** : quatre boutons (Une pause, À découvrir, Manger, Dormir) avec le détour et l'heure d'arrivée, et une demande en français comprise par l'IA de l'iPhone.
+- **Carte** : les lieux à cocher (via ferrata, randonnées, eau potable…), leur fiche, et « Plus tard » pour le prochain road trip.
+- **Historique**, photos et commentaires, notes vérifiées par le GPS.
+
+Les données (carte, routes, plus de 600 000 lieux) viennent d'OpenStreetMap. Le robot [`pack-france`](.github/workflows/pack-france.yml) les refait chaque lundi, et l'appli télécharge toute seule ce qui a changé, en Wi-Fi. Compilation et pack : [terrain/README.md](terrain/README.md).
+
+## Contribuer
+
+Toute aide est bienvenue :
+
+- **Signaler** un bug, un lieu mal placé ou une idée : onglet *Issues*.
+- **Améliorer les données** : TerraTrack lit OpenStreetMap. Corriger un camping, une source ou une via ferrata sur [openstreetmap.org](https://www.openstreetmap.org) améliore l'appli pour tout le monde au pack suivant.
+- **Proposer du code** : une *pull request*, avec `npm test` qui passe. Le code, les commentaires et les textes sont en français.
+
+Pistes ouvertes : Android, d'autres pays, le partage des retours de terrain entre voyageurs.
+
+## Démarrer (le planificateur sur ordinateur)
 
 Il faut Node.js 20 ou plus récent. Pour l'IA locale, il faut aussi [Ollama](https://ollama.com) avec un modèle :
 
@@ -121,9 +143,9 @@ Merci de respecter les conditions d'usage de ces services publics : TerraTrack m
 TerraTrack avance par briques utilisables tout de suite :
 
 1. **Sas d'intention et itinéraire** ✅ : questions, couloir, ordre sans allers-retours, journées équilibrées, carnet par IA, base de lieux hors ligne, export GPX.
-2. **Étoiles et routes tranquilles** : note ★ à ★★★ des lieux, option sans péages ni autoroutes, routes panoramiques.
-3. **Logistique de vie** : points d'eau, nuitées (campings, aires, accueil à la ferme), marchés et producteurs, tirés d'OpenStreetMap.
-4. **Pack hors ligne** : itinéraire, lieux et cartes réunis dans une seule archive pour OsmAnd, Organic Maps ou le T-Deck.
+2. **Étoiles et routes tranquilles** : notes vérifiées sur place ✅, option sans péages ✅ ; routes panoramiques à venir.
+3. **Logistique de vie** ✅ : points d'eau, nuitées (campings, aires, bivouac), marchés et producteurs, tirés d'OpenStreetMap.
+4. **Pack hors ligne** ✅ : appli iPhone avec carte, routes et lieux de toute la France, mis à jour chaque semaine.
 5. **Sentinelles** : retours de terrain (source tarie, accès fermé…) partagés de proche en proche par radio MeshCore, sans Internet.
 
 TerraTrack ne refait pas un GPS : pour le guidage virage par virage, il passe la main à OsmAnd ou Organic Maps, qui fonctionnent déjà hors ligne.

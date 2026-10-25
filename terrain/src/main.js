@@ -2,7 +2,7 @@
 import { BOUTONS, suggerer } from './boutons.js';
 import { COULEURS, creerCarte } from './carte.js';
 import { h, heure, duree, km, versMinutes, dateTexte, moisTexte, simplifier, memoire } from './outils.js';
-import { chargerPack } from './pack.js';
+import { chargerPack, etatMiseAJour, miseAJourPossible, verifierMiseAJour } from './pack.js';
 import { comprendre, correspond, iaDisponible } from './ia.js';
 import { MOTS, PRECISION_MAX_M, RAYON_M, effetDesNotes, noteDe, noter, passageValide, tousLesPassages, toutesLesNotes, verifierPassages } from './notes.js';
 import { ajouterPhoto, commenter, photosDe, retirerPhoto, souvenirDe, tousLesSouvenirs } from './souvenirs.js';
@@ -64,7 +64,10 @@ try {
 const carte = creerCarte($('#carte'), pack);
 chargement.hidden = true;
 const lieuParId = new Map(pack.lieux.map((l) => [l.id, l]));
-$('#limites').textContent = `${pack.meta.nom} · données OSM du ${new Date(pack.meta.version).toLocaleDateString('fr-FR')} · horaires et accès à vérifier sur place · bivouac : seuls les lieux déclarés`;
+const jourTexte = (version) => new Date(version).toLocaleDateString('fr-FR');
+const ecrireLimites = (miseAJour = '') =>
+  ($('#limites').textContent = `${pack.meta.nom} · données OSM du ${jourTexte(pack.meta.version)}${miseAJour} · horaires et accès à vérifier sur place · bivouac : seuls les lieux déclarés`);
+ecrireLimites();
 
 let plan = memoire.lire('plan', null);
 // Lieux déjà visités : jamais reproposés, grisés sur la carte.
@@ -1256,6 +1259,38 @@ carte.surClicDecouverte((id) => {
     },
   );
 });
+
+// ---------- Mises à jour du pack (iPhone) ----------
+// Le robot GitHub refait le pack chaque semaine. L'appli regarde au plus toutes les 12 h,
+// l'iPhone télécharge en arrière-plan (Wi-Fi) ce qui a changé, et la nouvelle version sert au lancement suivant.
+
+const DOUZE_HEURES = 12 * 3600 * 1000;
+let suiviMiseAJour = null;
+async function suivreMiseAJour() {
+  if (!miseAJourPossible) return;
+  if (Date.now() - memoire.lire('verificationPack', 0) > DOUZE_HEURES) {
+    memoire.ecrire('verificationPack', Date.now());
+    await verifierMiseAJour(REGION).catch(() => null);
+  }
+  const etat = await etatMiseAJour().catch(() => null);
+  if (!etat) return;
+  if (etat.etat === 'telechargement') {
+    const part = etat.total > 0 ? ` ${Math.round((etat.recu / etat.total) * 100)} %` : '';
+    ecrireLimites(` · mise à jour en cours${part} (en Wi-Fi)`);
+    clearTimeout(suiviMiseAJour);
+    suiviMiseAJour = setTimeout(suivreMiseAJour, 15000);
+  } else if (etat.etat === 'installee') {
+    ecrireLimites(` · données du ${jourTexte(etat.version)} prêtes, au prochain lancement`);
+    if (memoire.lire('miseAJourAnnoncee', '') !== etat.version) {
+      memoire.ecrire('miseAJourAnnoncee', etat.version);
+      afficherToast(`Nouvelles données du ${jourTexte(etat.version)} téléchargées : elles serviront au prochain lancement.`);
+    }
+  } else ecrireLimites();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') suivreMiseAJour();
+});
+suivreMiseAJour();
 
 // ---------- Au démarrage : reprendre le dernier parcours ----------
 

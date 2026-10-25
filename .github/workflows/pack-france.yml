@@ -1,0 +1,97 @@
+# Le robot du pack France : chaque lundi, il reprend les données OpenStreetMap du jour
+# (Geofabrik), reconstruit le réseau routier et les lieux, et les publie dans la version
+# « pack-france ». L'appli iPhone y regarde toute seule et ne télécharge que ce qui a changé.
+# La carte (1,3 Go) n'est refaite que tous les 3 mois, ou à la demande.
+name: Pack France
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      carte:
+        description: Refaire aussi la carte (1,3 Go)
+        type: boolean
+        default: false
+      construction_carte:
+        description: Construction Protomaps à utiliser (AAAAMMJJ), vide = la plus récente
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency: pack-france
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Faire de la place sur le disque (l'extrait France fait 5 Go)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Outils (osmium, pmtiles)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q osmium-tool
+          curl -sSL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz | sudo tar xz -C /usr/local/bin pmtiles
+          osmium --version | head -1
+          pmtiles version
+
+      - name: Données OpenStreetMap de la France
+        run: |
+          mkdir -p .brut
+          cd .brut
+          curl -sSL -o france.osm.pbf https://download.geofabrik.de/europe/france-latest.osm.pbf
+          curl -sSL -o france.poly https://download.geofabrik.de/europe/france.poly
+          node ../outils/pack/contour.mjs france.poly france-metropole.geojson
+          ls -lh
+
+      - name: Pack déjà publié
+        run: gh release download pack-france --pattern meta.json --output .brut/meta-precedent.json || echo "Pas encore de pack publié"
+
+      - name: Carte (tous les 3 mois, ou à la demande)
+        run: |
+          refaire="${{ inputs.carte }}"
+          version=$(node -e "try { console.log(require('./.brut/meta-precedent.json').fichiers['carte.pmtiles'].version) } catch { console.log('') }")
+          if [ -z "$version" ]; then refaire=true; fi
+          if [ -n "$version" ] && [ "$(( ( $(date +%s) - $(date -d "$version" +%s) ) / 86400 ))" -gt 90 ]; then refaire=true; fi
+          if [ "$refaire" != "true" ]; then echo "Carte gardée ($version)"; exit 0; fi
+          construction="${{ inputs.construction_carte }}"
+          if [ -z "$construction" ]; then
+            construction=$(curl -sSL https://build-metadata.protomaps.dev/builds.json | node -e "let t='';process.stdin.on('data',d=>t+=d).on('end',()=>console.log(JSON.parse(t).at(-1).key.replace('.pmtiles','')))")
+          fi
+          echo "Carte depuis la construction Protomaps $construction"
+          pmtiles extract "https://build.protomaps.com/$construction.pmtiles" .brut/france.pmtiles --region=.brut/france-metropole.geojson --maxzoom=13
+          echo "$construction" > .brut/carte-version.txt
+
+      - name: Routes et lieux
+        run: |
+          sh outils/pack/preparer-brut.sh france.osm.pbf
+          rm -f .brut/routes.osm.pbf .brut/pois.osm.pbf
+          node --max-old-space-size=12000 outils/pack/construire-pack.mjs france
+          cat terrain/public/pack/france/meta.json
+
+      - name: Vérifier les trajets (Paris → Marseille, Corse…)
+        run: node --test commun/routeur.test.mjs
+
+      - name: Publier
+        working-directory: terrain/public/pack/france
+        run: |
+          gh release view pack-france > /dev/null 2>&1 || gh release create pack-france --title "Pack France" --notes "Données hors ligne de l'appli (carte, routes, lieux), refaites chaque semaine depuis OpenStreetMap. L'appli les télécharge toute seule."
+          fichiers="graphe.bin lieux.json"
+          if [ -f carte.pmtiles ]; then fichiers="$fichiers carte.pmtiles"; fi
+          gh release upload pack-france $fichiers --clobber
+          # meta.json en dernier : l'appli ne voit la nouvelle version qu'une fois tous les fichiers en ligne.
+          gh release upload pack-france meta.json --clobber
