@@ -7,7 +7,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Relancée par iOS en arrière-plan (position) ou ouverte : le suivi du trajet reprend s'il était actif.
+        SuiviTrajet.partage.reprendre()
         return true
     }
 

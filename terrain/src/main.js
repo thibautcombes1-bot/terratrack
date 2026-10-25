@@ -34,6 +34,7 @@ import {
   estGratuit,
   nuitsGratuites,
   pleinsPrevus,
+  recalerJour,
   stationsSurLaRoute,
 } from './parcours.js';
 
@@ -636,6 +637,7 @@ function validerCompteRendu() {
   plan.valide = true;
   plan.valideLe = Date.now();
   enregistrer();
+  suiviAutomatique();
   afficherToast('Parcours validé. Bonne route !');
   document.querySelector('.contenu').scrollTop = 0;
 }
@@ -679,6 +681,7 @@ function rendreJour(j, i) {
         <strong>Jour ${i + 1} · ${dateTexte(j.date)}</strong>
         <small>Départ ${heure(j.heureDepart)} de ${h(j.debut.nom)} · ${km(j.metres)} · ${duree(j.conduiteMin)} de route${j.peage ? ' · péage' : ''}${j.routes.length ? ` · ${h(j.routes.join(', '))}` : ''}</small>
       </button>
+      ${j.faites?.length ? `<small class="info fait-avant">✓ Déjà fait : ${h(j.faites.map((e) => e.nom).join(', '))}</small>` : ''}
       ${etapes}
       <div class="actions jour-actions"><button type="button" data-action="kml" data-j="${i}">📤 Envoyer la journée à Organic Maps</button></div>
       <div class="etape nuit">
@@ -889,6 +892,7 @@ function traiterPoints(points) {
   carte.afficherPosition(position);
   const etapes = new Set(plan?.jours.flatMap((x) => x.etapes.map((e) => e.id)) ?? []);
   for (const l of passes) afficherToast(etapes.has(l.id) ? `✓ Étape faite : ${l.nom}. Tu peux la noter.` : `📍 Passage vérifié : ${l.nom}. Tu peux le noter.`);
+  surveillerItineraire(quand);
   rendreAvancee();
   rendreCarburantRoute();
 }
@@ -909,9 +913,33 @@ function majBoutonSuivi(actif) {
     releverSuivi();
   }
 }
-if (natif) TerrainNatif.suiviEtat().then(({ actif }) => majBoutonSuivi(actif)).catch(() => {});
+/** Un parcours validé dont un jour est aujourd'hui : on voyage. */
+const enVoyage = () => {
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  return Boolean(plan?.valide && plan.jours[0].date <= aujourdhui && plan.jours.at(-1).date >= aujourdhui);
+};
+/** Pendant le voyage, le suivi démarre tout seul (sauf si on l'a arrêté pour ce parcours). */
+async function suiviAutomatique() {
+  if (enVoyage()) {
+    const aujourdhui = new Date().toISOString().slice(0, 10);
+    const index = plan.jours.findIndex((j) => j.date === aujourdhui);
+    if (index >= 0) jourActif = index;
+  }
+  if (!natif) return;
+  const { actif } = await TerrainNatif.suiviEtat().catch(() => ({ actif: false }));
+  if (!actif && enVoyage() && !plan.suiviArrete) {
+    await TerrainNatif.suiviDemarrer().catch(() => {});
+    afficherToast('📍 Suivi du trajet lancé : il continue même appli fermée, pendant qu’Organic Maps te guide.');
+    return majBoutonSuivi(true);
+  }
+  majBoutonSuivi(actif);
+}
+suiviAutomatique();
 document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
   if (natif && releve) releverSuivi();
+  // Le matin d'un nouveau jour de voyage, le suivi repart tout seul.
+  suiviAutomatique();
 });
 
 let suivi = null;
@@ -919,10 +947,15 @@ $('#gps').addEventListener('click', async () => {
   if (natif) {
     const { actif } = await TerrainNatif.suiviEtat();
     if (actif) {
-      if (!confirm('Arrêter le suivi du trajet ?')) return;
+      if (!confirm('Arrêter le suivi du trajet ? Il ne redémarrera pas tout seul pour ce parcours.')) return;
       await TerrainNatif.suiviArreter();
+      if (plan) {
+        plan.suiviArrete = true;
+        memoire.ecrire('plan', plan);
+      }
       return majBoutonSuivi(false);
     }
+    if (plan) plan.suiviArrete = false;
     await TerrainNatif.suiviDemarrer();
     afficherToast('Suivi lancé : tu peux passer sur Organic Maps, TerraTrack note ton avancée.');
     return majBoutonSuivi(true);
@@ -942,8 +975,53 @@ $('#gps').addEventListener('click', async () => {
   $('#gps').textContent = '📍 Position GPS suivie';
 });
 
+// ---------- Imprévu : on a quitté le parcours prévu, ou on est en retard ----------
+
+let horsParcoursDepuis = null;
+let dernierRecalcul = 0;
+/** À plus de 3 km du tracé du jour pendant 3 minutes : changement d'itinéraire compris, on recalcule. */
+function surveillerItineraire(quand) {
+  if (!enVoyage() || !position) return;
+  const j = plan.jours[jourActif];
+  const ecart = situer(routeDe(j.coords), position).ecart;
+  if (ecart <= 3) return (horsParcoursDepuis = null);
+  horsParcoursDepuis ??= quand;
+  if (quand - horsParcoursDepuis >= 3 * 60000 && Date.now() - dernierRecalcul > 15 * 60000) recaler('Tu as quitté le parcours prévu');
+}
+/** La suite de la journée recalculée depuis la position, à l'heure réelle. */
+function recaler(raison) {
+  if (!plan || !position) return;
+  dernierRecalcul = Date.now();
+  horsParcoursDepuis = null;
+  const d = new Date();
+  const minute = natif || suivi != null ? d.getHours() * 60 + d.getMinutes() : versMinutes(maintenant.value);
+  const { misesDeCote } = recalerJour(pack, plan, jourActif, position, minute, etapesFaites());
+  enregistrer();
+  rendreAvancee();
+  rendreCarburantRoute();
+  afficherToast(
+    `🔀 ${raison} : la suite du jour ${jourActif + 1} est recalculée depuis ta position.${
+      misesDeCote.length ? ` Mis de côté pour demain : ${misesDeCote.map((e) => e.nom).join(', ')}.` : ''
+    } Touche « 🧭 ${NOMS_GUIDAGE[guidagePrefere()]} » pour reprendre le guidage.`,
+  );
+}
+document.addEventListener('click', (ev) => {
+  if (!ev.target.closest('[data-imprevu]')) return;
+  recaler('Imprévu');
+  relancerGuidage();
+});
+/** Le guidage (Organic Maps…) repart de la position vers la nouvelle prochaine étape. */
+function relancerGuidage() {
+  if (prochaineEtape) setTimeout(() => guider(guidagePrefere(), prochaineEtape), 1200);
+}
+
 /** Étapes passées de ce voyage (passage vérifié par le GPS depuis la préparation). */
 const etapesFaites = () => new Set(plan ? tousLesPassages().filter((p) => p.date >= (plan.cree ?? 0)).map((p) => p.id) : []);
+
+let prochaineEtape = null;
+document.addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-prochaine]') && prochaineEtape) guider(guidagePrefere(), prochaineEtape);
+});
 
 /** Où j'en suis : km faits, étapes faites, prochaine étape, arrivée estimée et écart au programme. */
 function rendreAvancee() {
@@ -961,15 +1039,22 @@ function rendreAvancee() {
   const arrivee = minute + (trajet ? trajet.secondes / 60 : 0) + restantes.reduce((t, e) => t + (e.visiteMin ?? 0), 0);
   const ecart = Math.round(arrivee - j.fin.arriveeMin);
   const prochaine = restantes[0] ?? j.fin;
+  prochaineEtape = prochaine;
   const versProchaine = trajet?.troncons[0];
   zone.innerHTML = `
     <div class="encadre">
       <div class="nom">🚗 Jour ${jourActif + 1} : ${Math.round(faitKm)} / ${Math.round(route.longueur)} km · ✓ ${faites.length}/${j.etapes.length} étape(s)</div>
       <div class="jauge"><span style="width:${Math.round((faitKm / (route.longueur || 1)) * 100)}%"></span></div>
       <small>Prochaine : ${h(prochaine.nom)}${versProchaine ? ` dans ${km(versProchaine.metres)} (${duree(versProchaine.secondes / 60)})` : ''}</small>
+      <button type="button" class="principal" data-prochaine>🧭 ${NOMS_GUIDAGE[guidagePrefere()]} → ${h(prochaine.nom)}</button>
       <small>Arrivée estimée à ${h(j.fin.nom)} : ${heure(arrivee)} ${
         ecart > 5 ? `<span class="retard">(+${duree(ecart)} sur le programme)</span>` : ecart < -5 ? `<span class="marge-ok">(${duree(-ecart)} d’avance)</span>` : '(à l’heure)'
       } · coucher ${heure(j.coucherMin)}</small>
+      ${
+        arrivee > j.coucherMin
+          ? `<p class="alerte">⚠️ Arrivée après la nuit. <button type="button" class="lien" data-imprevu>Alléger la journée</button> : je garde l’essentiel et je mets le reste de côté pour demain.</p>`
+          : '<div class="actions"><button type="button" data-imprevu>🔀 Imprévu : recalculer depuis ici</button></div>'
+      }
     </div>`;
 }
 
@@ -1135,6 +1220,11 @@ $('#form-demande').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const texte = $('#demande').value.trim();
   if (!texte || !plan || !position) return;
+  if (/barr[ée]|ferm[ée]e|bouchon|accident|d[ée]viation|travaux|retard|impr[ée]vu|panne|bloqu/i.test(texte)) {
+    reponseIA.textContent = 'Compris : je recalcule la suite de la journée depuis ta position et je relance le guidage.';
+    recaler('Imprévu');
+    return relancerGuidage();
+  }
   reponseIA.textContent = 'Je réfléchis…';
   const j = plan.jours[jourActif];
   const demande = await comprendre(texte, `Jour ${jourActif + 1}, il est ${maintenant.value}, en route vers ${j.fin.nom}. Envies : ${plan.params.envies.join(', ')}.`);

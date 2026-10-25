@@ -509,6 +509,37 @@ export function changerDestination(pack, plan, j, destination, depuis) {
   plan.cible = nouveau.cible;
 }
 
+/**
+ * Imprévu (route barrée, déviation, retard) : la suite de la journée `j` recalculée depuis
+ * `position` à l'heure réelle `minute`. Les étapes déjà faites sont gardées à part (`jour.faites`) ;
+ * celles qui ne tiennent plus avant la nuit sont mises de côté et renvoyées.
+ */
+export function recalerJour(pack, plan, j, position, minute, faites = new Set()) {
+  const jour = plan.jours[j];
+  const route = preparerRoute(jour.coords);
+  const ici = situer(route, position).s;
+  // Restent : les étapes pas encore faites et pas déjà dépassées sur le tracé prévu.
+  const restantes = jour.etapes.filter((e) => !faites.has(e.id) && (situer(route, e).s > ici - 1 || situer(route, position).ecart > 3));
+  jour.faites = [...(jour.faites ?? []), ...jour.etapes.filter((e) => !restantes.includes(e)).map((e) => ({ id: e.id, nom: e.nom }))];
+  jour.debut = { nom: 'Ma position', lat: position.lat, lon: position.lon };
+  jour.heureDepart = minute;
+  jour.etapes = restantes;
+  recalculerJour(pack, jour, conduiteMax(plan));
+  const misesDeCote = [];
+  while (jour.margeMin < 0 && jour.etapes.length) {
+    const moinsUtile = jour.etapes.reduce((a, b) => ((a.score ?? 1) / a.visiteMin <= (b.score ?? 1) / b.visiteMin ? a : b));
+    jour.etapes.splice(jour.etapes.indexOf(moinsUtile), 1);
+    misesDeCote.push(moinsUtile);
+    recalculerJour(pack, jour, conduiteMax(plan));
+  }
+  // Rien n'est perdu : ce qui est mis de côté devient une idée pour le lendemain.
+  plan.alternatives = [
+    ...(plan.alternatives ?? []),
+    ...misesDeCote.map((e) => ({ ...e, jour: Math.min(j + 1, plan.jours.length - 1), pourquoi: `Mis de côté le jour ${j + 1} (imprévu) · ${e.pourquoi ?? ''}`, genre: 'autre' })),
+  ];
+  return { misesDeCote };
+}
+
 // ---------- Compte rendu avant le départ ----------
 
 /** Choisit `n` éléments répartis le long du trajet (triés par position). */

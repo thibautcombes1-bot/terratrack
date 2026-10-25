@@ -1036,3 +1036,8 @@ dialog#menu-lieu::backdrop {
   color: var(--vert);
   font-size: 12.5px;
 }
+
+.fait-avant {
+  padding: 6px 12px;
+  border-top: 1px solid var(--trait);
+}

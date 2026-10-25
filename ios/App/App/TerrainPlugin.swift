@@ -7,6 +7,8 @@ import UIKit
 
 /// Positions enregistrées pendant le trajet, même appli en arrière-plan (indicateur bleu d'iOS).
 /// Une ligne par position dans suivi.jsonl : [date (ms), lat, lon, précision (m)].
+/// Si l'appli est fermée, le service « changements importants » d'iOS la relance en arrière-plan
+/// après quelques centaines de mètres (autorisation « Toujours »), et le suivi reprend tout seul.
 final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
     static let partage = SuiviTrajet()
     private let gestionnaire = CLLocationManager()
@@ -24,14 +26,29 @@ final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
         gestionnaire.pausesLocationUpdatesAutomatically = false
         gestionnaire.allowsBackgroundLocationUpdates = true
         gestionnaire.showsBackgroundLocationIndicator = true
-        gestionnaire.requestWhenInUseAuthorization()
+        switch gestionnaire.authorizationStatus {
+        case .notDetermined: gestionnaire.requestWhenInUseAuthorization()
+        // Déjà « pendant l'utilisation » : iOS propose une fois de passer à « Toujours ».
+        case .authorizedWhenInUse: gestionnaire.requestAlwaysAuthorization()
+        default: break
+        }
         gestionnaire.startUpdatingLocation()
+        gestionnaire.startMonitoringSignificantLocationChanges()
         UserDefaults.standard.set(true, forKey: "terratrack.suivi")
     }
 
     func arreter() {
         gestionnaire.stopUpdatingLocation()
+        gestionnaire.stopMonitoringSignificantLocationChanges()
         UserDefaults.standard.set(false, forKey: "terratrack.suivi")
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard actif else { return }
+        if manager.authorizationStatus == .authorizedWhenInUse { manager.requestAlwaysAuthorization() }
+        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            manager.startUpdatingLocation()
+        }
     }
 
     /// Reprend le suivi au lancement s'il était actif.

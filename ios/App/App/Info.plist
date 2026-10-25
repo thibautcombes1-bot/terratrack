@@ -32,6 +32,8 @@
 	<array>
 		<string>location</string>
 	</array>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Pendant ton voyage, TerraTrack suit ton trajet même appli fermée (pendant qu'Organic Maps te guide) : étapes faites, avancée, carburant. Rien ne quitte ton iPhone.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>TerraTrack utilise ta position pour te proposer des pauses, des lieux à découvrir, de quoi manger et où dormir le long de ta route, même sans réseau.</string>
 	<key>UIApplicationSceneManifest</key>
