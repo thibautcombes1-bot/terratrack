@@ -29,6 +29,9 @@ Dans `terrain/`, le compagnon de route, qui marche **sans réseau** sur toute la
 - **Parcours** : chaque étape dit pourquoi elle est là, un compte rendu est à valider avant le départ, et le guidage passe par Waze ou Plans.
 - **En route** : quatre boutons (Une pause, À découvrir, Manger, Dormir) avec le détour et l'heure d'arrivée, et une demande en français comprise par l'IA de l'iPhone.
 - **Carte** : les lieux à cocher (via ferrata, randonnées, eau potable…), leur fiche, et « Plus tard » pour le prochain road trip.
+- **Carburant, sans se ruiner** : consommation selon la route, autonomie, plein conseillé à la station la moins chère (prix de [prix-carburants.gouv.fr](https://www.prix-carburants.gouv.fr), du jour quand il y a du réseau), budget, et « ⛽ Avec mon plein » : où aller et revenir sans refaire le plein.
+- **Météo** ([Open-Meteo](https://open-meteo.com), 16 jours) : le parcours s'adapte (orage → pas de via ferrata, pluie → visites à l'abri, chaleur → baignade) ; couche Météo sur la carte.
+- **Guidage** par [Organic Maps](https://organicmaps.app) (hors ligne), Waze ou Plans ; la journée s'envoie à Organic Maps, et TerraTrack suit l'avancée en arrière-plan (étapes faites, avance ou retard).
 - **Historique**, photos et commentaires, notes vérifiées par le GPS.
 
 Les données (carte, routes, plus de 600 000 lieux) viennent d'OpenStreetMap. Le robot [`pack-france`](.github/workflows/pack-france.yml) les refait chaque lundi, et l'appli télécharge toute seule ce qui a changé, en Wi-Fi. Compilation et pack : [terrain/README.md](terrain/README.md).
