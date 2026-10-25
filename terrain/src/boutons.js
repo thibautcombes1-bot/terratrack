@@ -27,6 +27,13 @@ export const BOUTONS = {
     detourMax: 15,
     arretMin: 45,
   },
+  carburant: {
+    titre: 'Carburant',
+    emoji: '⛽',
+    critere: 'Stations sur ta route, les moins chères d’abord, à moins de 10 min de détour.',
+    detourMax: 10,
+    arretMin: 10,
+  },
   dormir: {
     titre: 'Dormir',
     emoji: '🏕️',
@@ -41,7 +48,7 @@ const PRIORITE_PAUSE = ['Eau potable', 'Pique-nique', 'Baignade', 'Abri', 'Toile
  * Suggestions pour un bouton, depuis `position` à l'heure `minute` (minutes depuis minuit),
  * en allant vers la fin du jour `j` du plan.
  */
-export function suggerer(pack, plan, { j, position, minute }, bouton, { correspond, detourMaxMin, dejaVus = new Set() } = {}) {
+export function suggerer(pack, plan, { j, position, minute }, bouton, { correspond, detourMaxMin, dejaVus = new Set(), carburant } = {}) {
   const jour = plan.jours[j];
   const regle = { ...BOUTONS[bouton], ...(detourMaxMin > 0 ? { detourMax: detourMaxMin } : {}) };
   const cible = jour.fin;
@@ -63,6 +70,7 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
     if (l.categorie !== bouton || dejaPrevus.has(l.id)) return false;
     if (bouton === 'decouvrir') return Boolean(l.nom) && aMonNiveau(l, plan.params.niveauMax);
     if (bouton === 'dormir') return typesNuit.length === 0 || typesNuit.includes(l.type);
+    if (bouton === 'carburant') return !carburant || !l.carburants || l.carburants.includes(carburant);
     return true;
   };
   // D'abord le rectangle du trajet restant (+ marge) : à l'échelle de la France, situer chaque lieu serait trop long.
@@ -106,6 +114,11 @@ export function suggerer(pack, plan, { j, position, minute }, bouton, { correspo
       .filter((s) => s.detourMin <= regle.detourMax)
       .map((s) => ({ ...s, valeur: (interet(s) + (plaitA(s, plan.params.envies) ? 2 : 0)) / (s.detourMin + s.arretMin + 15) }))
       .sort((a, b) => b.valeur - a.valeur);
+  // Carburant : la moins chère d'abord (les stations sans prix connu après), puis la plus proche.
+  else if (bouton === 'carburant')
+    liste = avecDetours
+      .filter((s) => s.detourMin <= regle.detourMax)
+      .sort((a, b) => (a.prix?.[carburant] ?? Infinity) - (b.prix?.[carburant] ?? Infinity) || a.detourMin - b.detourMin);
   else if (bouton === 'manger')
     liste = avecDetours.filter((s) => s.detourMin <= regle.detourMax).sort((a, b) => a.detourMin - b.detourMin || a.atteindreMin - b.atteindreMin);
   // Dormir : d'abord ce qu'on atteint avant la nuit, le plus loin possible sur la route.

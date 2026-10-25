@@ -12,6 +12,7 @@ class ViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(IAPlugin())
         bridge?.registerPluginInstance(PackPlugin())
+        bridge?.registerPluginInstance(TerrainPlugin())
     }
 }
 

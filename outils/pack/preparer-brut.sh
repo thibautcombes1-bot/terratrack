@@ -18,7 +18,7 @@ osmium tags-filter zone.osm.pbf \
 osmium add-locations-to-ways routes.osm.pbf -f opl -o routes.opl --overwrite
 
 osmium tags-filter zone.osm.pbf \
-  nwr/amenity=drinking_water,shelter,toilets,marketplace,restaurant,cafe,place_of_worship \
+  nwr/amenity=drinking_water,shelter,toilets,marketplace,restaurant,cafe,place_of_worship,fuel \
   nwr/tourism=picnic_site,viewpoint,attraction,museum,camp_site,caravan_site,alpine_hut,wilderness_hut,guest_house,hotel,chalet,hostel \
   nwr/leisure=picnic_table,bathing_place \
   nwr/natural=spring,waterfall,cave_entrance,peak,arch \

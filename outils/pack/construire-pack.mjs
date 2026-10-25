@@ -3,12 +3,14 @@
 //   sh outils/pack/preparer-brut.sh france.osm.pbf   routes.opl, pois.geojsonseq, zone.osm.pbf
 //   .brut/france.pmtiles                              carte de la zone (pmtiles extract)
 //   node outils/pack/construire-pack.mjs [france|lozere]
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import readline from 'node:readline';
 import { lignes } from './lignes.mjs';
 import { distanceKm } from '../../commun/geo.js';
 import { lireActivites } from './activites.mjs';
+import { ajouterPrix } from './prix-carburants.mjs';
 import { chargerGraphe } from '../../commun/routeur.js';
 
 const REGIONS = {
@@ -347,6 +349,8 @@ function classer(t) {
   if (t.tourism === 'viewpoint') return { categorie: 'decouvrir', type: 'Point de vue' };
   if (t.natural === 'waterfall') return { categorie: 'decouvrir', type: 'Cascade' };
   if (t.natural === 'arch') return { categorie: 'decouvrir', type: 'Arche naturelle' };
+  // Stations-service : avec ou sans nom (la marque suffit), pour le carburant en route.
+  if (t.amenity === 'fuel') return { categorie: 'carburant', type: 'Station-service' };
   if (!t.name) return null;
   if (t.tourism === 'museum') return { categorie: 'decouvrir', type: 'Musée' };
   if (t.tourism === 'attraction') return { categorie: 'decouvrir', type: 'À voir' };
@@ -354,6 +358,16 @@ function classer(t) {
   if (t.natural === 'peak') return { categorie: 'decouvrir', type: 'Sommet' };
   if (t.historic && HISTORIQUES[t.historic]) return { categorie: 'decouvrir', type: HISTORIQUES[t.historic] };
   return null;
+}
+
+const CARBURANTS = { gazole: 'fuel:diesel', SP95: 'fuel:octane_95', SP98: 'fuel:octane_98', E10: 'fuel:e10', E85: 'fuel:e85', GPL: 'fuel:lpg' };
+/** Carburants vendus (s'ils sont indiqués) et ouverture 24 h/24 (automate ou horaires 24/7). */
+function carburants(t) {
+  const vendus = Object.entries(CARBURANTS).filter(([, cle]) => t[cle] === 'yes').map(([nom]) => nom);
+  return {
+    ...(vendus.length ? { carburants: vendus } : {}),
+    ...(t.opening_hours === '24/7' || t.automated === 'yes' ? { h24: true } : {}),
+  };
 }
 
 /** Date de la dernière vérification connue : un contrôle sur place, sinon la dernière modification. */
@@ -393,7 +407,7 @@ async function lireLieux() {
     lieux.push({
       id: `${t['@type'][0]}${t['@id']}`,
       ...classe,
-      nom: t.name ?? '',
+      nom: t.name || (classe.categorie === 'carburant' ? t.brand : '') || '',
       lat: arrondi(lat),
       lon: arrondi(lon),
       horaires: t.opening_hours,
@@ -402,6 +416,7 @@ async function lireLieux() {
       tel: t.phone || t['contact:phone'],
       site: t.website || t['contact:website'],
       payant: t.fee,
+      ...(classe.categorie === 'carburant' ? carburants(t) : {}),
       source: 'osm',
     });
   }
@@ -482,6 +497,8 @@ for (const n of notables) if (!procheDuMeme(parNomOSM, n)) tous.push(n);
 
 // Activités (randonnée, via ferrata, escalade, canoë, baignade) et patrimoine mondial UNESCO.
 const { activites, unesco } = await lireActivites(BRUT, REGION.bbox);
+// Prix des carburants (France seulement : le service de l'État ne couvre que la France).
+if (REGION.id === 'france') console.log(`prix des carburants : ${await ajouterPrix(tous, BRUT, dansRegion)} stations`);
 const dejaLa = new Set(tous.map((l) => l.id));
 for (const a of activites) if (!dejaLa.has(a.id)) tous.push(a);
 const parId = new Map(tous.map((l) => [l.id, l]));
@@ -515,9 +532,11 @@ const lireJSON = (nom) => (fs.existsSync(new URL(nom, BRUT)) ? JSON.parse(fs.rea
 const versionCarte = fs.existsSync(new URL('carte-version.txt', BRUT)) ? fs.readFileSync(new URL('carte-version.txt', BRUT), 'utf8').trim() : dateDonnees;
 const taille = (f) => fs.statSync(new URL(f, SORTIE)).size;
 // Chaque fichier a sa taille et sa version : l'appli ne télécharge que ce qui a changé.
+// Version = date des données + empreinte du contenu : un pack refait le même jour (nouveau code) se voit aussi.
+const empreinte = (f) => createHash('sha256').update(fs.readFileSync(new URL(f, SORTIE))).digest('hex').slice(0, 8);
 const fichiers = {
-  'graphe.bin': { taille: taille('graphe.bin'), version: dateDonnees },
-  'lieux.json': { taille: taille('lieux.json'), version: dateDonnees },
+  'graphe.bin': { taille: taille('graphe.bin'), version: `${dateDonnees}-${empreinte('graphe.bin')}` },
+  'lieux.json': { taille: taille('lieux.json'), version: `${dateDonnees}-${empreinte('lieux.json')}` },
 };
 if (carteNeuve) fichiers['carte.pmtiles'] = { taille: taille('carte.pmtiles'), version: versionCarte };
 else if (lireJSON('meta-precedent.json')?.fichiers?.['carte.pmtiles']) fichiers['carte.pmtiles'] = lireJSON('meta-precedent.json').fichiers['carte.pmtiles'];

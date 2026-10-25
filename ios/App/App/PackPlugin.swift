@@ -149,7 +149,8 @@ final class TelechargeurPack: NSObject, URLSessionDownloadDelegate {
             guard let fichiers = telechargee?["fichiers"] as? [String: Any] else { return }
             var reste = 0
             for nom in fichiers.keys {
-                if let l = DossiersPack.version(livree, nom), let t = DossiersPack.version(telechargee, nom), l >= t {
+                // Versions « AAAA-MM-JJ-empreinte » : on compare les dates (10 premiers caractères).
+                if let l = DossiersPack.version(livree, nom), let t = DossiersPack.version(telechargee, nom), l.prefix(10) >= t.prefix(10) {
                     try? FileManager.default.removeItem(at: dossier.appendingPathComponent(nom))
                 } else if FileManager.default.fileExists(atPath: dossier.appendingPathComponent(nom).path) {
                     reste += 1

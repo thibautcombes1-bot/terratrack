@@ -28,6 +28,10 @@
 	<string>TerraTrack utilise l’appareil photo pour ajouter tes photos aux lieux visités. Elles restent sur ton iPhone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TerraTrack ouvre ta photothèque pour ajouter des photos aux lieux visités. Elles restent sur ton iPhone.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>TerraTrack utilise ta position pour te proposer des pauses, des lieux à découvrir, de quoi manger et où dormir le long de ta route, même sans réseau.</string>
 	<key>UIApplicationSceneManifest</key>

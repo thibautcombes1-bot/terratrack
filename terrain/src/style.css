@@ -572,6 +572,7 @@ input:focus {
 
 /* Notation vérifiée par GPS. */
 dialog#noter,
+dialog#plein,
 dialog#souvenirs {
   width: min(92vw, 380px);
   border: 0;
@@ -582,6 +583,7 @@ dialog#souvenirs {
 }
 
 dialog#noter::backdrop,
+dialog#plein::backdrop,
 dialog#souvenirs::backdrop,
 dialog#photo-grande::backdrop {
   background: rgba(0, 0, 0, 0.35);
@@ -952,4 +954,79 @@ dialog#menu-lieu::backdrop {
 
 #menu-groupes > .principal {
   margin: 12px 0 2px;
+}
+
+/* Trois petits champs côte à côte (litres, conso, prix). */
+.trois {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.trois .champ,
+.deux .champ {
+  font-size: 12.5px;
+}
+
+/* Carburant et avancée : un encadré, sans boutons dans tous les sens. */
+.encadre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--trait);
+  border-radius: 14px;
+  background: var(--carte-fond);
+}
+
+.encadre .nom {
+  font-weight: 700;
+}
+
+.encadre small {
+  display: block;
+  margin-top: 2px;
+  color: var(--doux);
+  font-size: 12.5px;
+}
+
+.encadre .station {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--trait);
+}
+
+.prix {
+  color: var(--vert);
+  font-weight: 700;
+}
+
+.jauge {
+  height: 8px;
+  margin: 6px 0 2px;
+  border-radius: 4px;
+  background: var(--trait);
+  overflow: hidden;
+}
+
+.jauge span {
+  display: block;
+  height: 100%;
+  background: var(--vert);
+}
+
+.jauge.basse span {
+  background: var(--alerte);
+}
+
+.retard {
+  color: var(--alerte);
+}
+
+.fait {
+  opacity: 0.55;
+}
+
+.meteo {
+  display: block;
+  color: #1a5fb4;
+  font-size: 12.5px;
 }

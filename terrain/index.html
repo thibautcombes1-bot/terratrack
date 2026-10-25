@@ -74,6 +74,19 @@
           <div class="ligne" data-groupe="niveau" data-unique></div>
           <div class="titre">Pour dormir</div>
           <div class="ligne" data-groupe="nuits"></div>
+          <div class="titre">Véhicule et carburant</div>
+          <div class="ligne" data-groupe="carburant" data-unique></div>
+          <div class="trois">
+            <label class="champ">Au départ (L) <input type="number" name="litresDepart" inputmode="decimal" min="0" step="1" /></label>
+            <label class="champ">Conso (L/100) <input type="number" name="conso" inputmode="decimal" min="1" step="0.1" /></label>
+            <label class="champ">Prix payé (€/L) <input type="number" name="prix" inputmode="decimal" min="0" step="0.001" placeholder="moyenne" /></label>
+          </div>
+          <div class="deux">
+            <label class="champ">Réservoir (L) <input type="number" name="reservoir" inputmode="decimal" min="10" step="1" /></label>
+            <label class="champ">Budget carburant (€) <input type="number" name="budget" inputmode="decimal" min="0" step="5" placeholder="aucun" /></label>
+          </div>
+          <div class="titre">Me guider avec</div>
+          <div class="ligne" data-groupe="guidage" data-unique></div>
           <p class="info" id="info-plus-tard" hidden></p>
           <p class="info" id="deja-vus" hidden></p>
           <p class="erreur" id="erreur-preparer" hidden></p>
@@ -86,6 +99,7 @@
         <!-- En route -->
         <div id="route" class="panneau" hidden>
           <div class="ligne" id="choix-jour"></div>
+          <div id="avancee"></div>
           <div class="position">
             <button type="button" class="secondaire" id="gps">📍 Ma position</button>
             <label class="curseur">ou je suis à <b id="avance-texte">0 %</b> du trajet du jour
@@ -98,6 +112,7 @@
             <button type="submit" aria-label="Demander">✨</button>
           </form>
           <p class="info" id="reponse-ia"></p>
+          <div id="carburant-route"></div>
           <div class="quatre">
             <button type="button" data-bouton="pause"><span>⏸️</span>Une pause</button>
             <button type="button" data-bouton="decouvrir"><span>🏛️</span>À découvrir</button>
@@ -132,6 +147,20 @@
         <div class="deux">
           <button class="secondaire" value="annuler">Annuler</button>
           <button class="principal" value="valider" id="noter-valider" disabled>Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="plein">
+      <form method="dialog">
+        <div class="nom">⛽ J’ai fait le plein</div>
+        <small class="info">Laisse les litres vides pour un plein complet. Le prix sert à compter ce que coûte le voyage.</small>
+        <div class="deux">
+          <label class="champ">Litres mis <input type="number" id="plein-litres" inputmode="decimal" min="1" step="0.1" placeholder="plein" /></label>
+          <label class="champ">Prix payé (€/L) <input type="number" id="plein-prix" inputmode="decimal" min="0" step="0.001" /></label>
+        </div>
+        <div class="deux">
+          <button class="secondaire" value="annuler">Annuler</button>
+          <button class="principal" value="valider">Enregistrer</button>
         </div>
       </form>
     </dialog>

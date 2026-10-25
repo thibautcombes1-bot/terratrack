@@ -361,7 +361,7 @@ export function itineraire(g, de, vers, { eviterPeages = false } = {}) {
   const s = plusProcheSommet(g, de);
   const c = plusProcheSommet(g, vers);
   if (s < 0 || c < 0) return null;
-  if (s === c) return { secondes: 0, metres: 0, peage: false, routes: [], coords: [[g.lon[s], g.lat[s]]] };
+  if (s === c) return { secondes: 0, metres: 0, peage: false, routes: [], coords: [[g.lon[s], g.lat[s]]], vitesses: [] };
   // Pas de route entre la Corse et le continent (ni vers une île) : inutile de tout explorer.
   if (g.composante[s] !== g.composante[c]) return null;
   const arcs = aEtoile(g, s, c, { eviterPeages });
@@ -371,6 +371,8 @@ export function itineraire(g, de, vers, { eviterPeages = false } = {}) {
   let peage = false;
   const routes = [];
   const coords = [];
+  // Vitesse de la route pour chaque segment du tracé : sert à estimer la consommation.
+  const vitesses = [];
   for (const k of arcs) {
     const e = g.avant.arete[k];
     metres += g.aretes.m[e];
@@ -381,8 +383,9 @@ export function itineraire(g, de, vers, { eviterPeages = false } = {}) {
     if (nom && routes.at(-1) !== nom) routes.push(nom);
     const points = pointsArete(g, e, g.avant.sens[k]);
     coords.push(...(coords.length ? points.slice(1) : points));
+    for (let i = 1; i < points.length; i++) vitesses.push(g.aretes.v[e]);
   }
-  return { secondes, metres, peage, routes, coords };
+  return { secondes, metres, peage, routes, coords, vitesses };
 }
 
 /** Sommet de départ d'un arc (CSR « avant ») arrivant sur `v`. */
@@ -404,6 +407,7 @@ export function itineraireMulti(g, points, options = {}) {
     metres: troncons.reduce((s, t) => s + t.metres, 0),
     peage: troncons.some((t) => t.peage),
     coords: troncons.flatMap((t, i) => (i ? t.coords.slice(1) : t.coords)),
+    vitesses: troncons.flatMap((t) => t.vitesses),
     troncons,
   };
 }

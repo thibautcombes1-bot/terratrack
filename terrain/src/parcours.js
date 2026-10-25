@@ -5,6 +5,7 @@ import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire, itineraireMulti } from '../../commun/routeur.js';
 import { cleOrdre, decouperJours, preparerRoute, rectangle, selectionner, situer } from '../../server/itineraire.js';
 import { ajouterJours } from './outils.js';
+import { kmDansLaJournee, profilConso } from '../../commun/carburant.js';
 import { coucherSoleil } from './soleil.js';
 
 export const ENVIES = {
@@ -108,7 +109,7 @@ export function dureeVisite(l) {
   return 30;
 }
 
-const resume = (l) => ({ notoriete: l.notoriete, classe: l.classe, id: l.id, nom: l.nom, type: l.type, activite: l.activite, unesco: l.unesco, longueurKm: l.longueurKm, niveau: l.niveau, niveauRang: l.niveauRang, niveauTexte: l.niveauTexte, details: l.details, dureeH: l.activite ? l.dureeH : undefined, lat: l.lat, lon: l.lon, labels: l.labels, categorie: l.categorie, horaires: l.horaires, date: l.date, verifie: l.verifie, tel: l.tel, site: l.site });
+const resume = (l) => ({ notoriete: l.notoriete, classe: l.classe, id: l.id, nom: l.nom, type: l.type, activite: l.activite, unesco: l.unesco, longueurKm: l.longueurKm, niveau: l.niveau, niveauRang: l.niveauRang, niveauTexte: l.niveauTexte, details: l.details, dureeH: l.activite ? l.dureeH : undefined, lat: l.lat, lon: l.lon, labels: l.labels, categorie: l.categorie, horaires: l.horaires, date: l.date, verifie: l.verifie, tel: l.tel, site: l.site, prix: l.prix, prixLe: l.prixLe, h24: l.h24, carburants: l.carburants, idPrix: l.idPrix, adresse: l.adresse });
 
 /** « Surprends-moi » : le coin le plus riche en lieux remarquables à bonne distance. */
 function choisirCoin(lieux, depart, porteeKm, favoris = new Set()) {
@@ -207,6 +208,8 @@ export function recalculerJour(pack, jour, conduiteMaxH) {
   minute += trajet.troncons.at(-1).secondes / 60;
   jour.fin.arriveeMin = minute;
   jour.coords = trajet.coords;
+  // Pour le carburant : km et km « équivalents » (autoroute, lacets) tous les ~5 km.
+  jour.profil = profilConso(trajet.coords, trajet.vitesses);
   jour.metres = trajet.metres;
   jour.conduiteMin = trajet.secondes / 60;
   jour.peage = trajet.peage;
@@ -255,6 +258,7 @@ export function planifier(pack, p) {
   // Lieux remarquables du trajet qui ne répondent pas aux envies : proposés seulement en alternative.
   const autres = [];
   const favorisAPortee = [];
+  const ecartesMeteo = [];
   for (const l of pack.lieux) {
     if (!dansZone(l)) continue;
     // Un lieu gardé « pour plus tard » passe avant les envies et le niveau, s'il est à portée (couloir élargi).
@@ -276,9 +280,15 @@ export function planifier(pack, p) {
       if (interet(l) >= 1.5) autres.push({ ...l, ...position, interet: interet(l), score: interet(l) - position.ecart / largeur });
       continue;
     }
+    // La météo prévue ce jour-là (si on l'a) : orage ou vent fort écartent via ferrata, escalade, canoë, rando.
+    const effetMeteo = p.meteo ? ajustementMeteo(l, p.meteo(l, ajouterJours(p.date, Math.min(nbJours - 1, Math.floor(position.cle * nbJours))))) : 0;
+    if (effetMeteo === -Infinity) {
+      ecartesMeteo.push(l);
+      continue;
+    }
     // L'envie compte, mais un lieu doit aussi être remarquable (labels, notoriété, type).
     // Tes notes vérifiées sur place favorisent (ou écartent) les lieux du même type.
-    const qualite = interet(l) + (plaitA(l, p.envies) ? 1.5 : 0) + (p.bonusParType?.[l.activite ?? l.type] ?? 0);
+    const qualite = interet(l) + (plaitA(l, p.envies) ? 1.5 : 0) + (p.bonusParType?.[l.activite ?? l.type] ?? 0) + effetMeteo;
     const score = qualite - (position.ecart / largeur) * 1.5 + (Math.random() - 0.5) * 0.4;
     candidats.push({ ...l, ...position, qualite, score, dureeH: dureeVisite(l) / 60 });
   }
@@ -309,7 +319,11 @@ export function planifier(pack, p) {
     if (choisis.some(repond)) continue;
     const meilleur = candidats.filter(repond).sort((a, b) => b.score - a.score)[0];
     if (!meilleur) {
-      avertissements.push(`Pas de ${ENVIES[envie].toLowerCase()} près de ce trajet : essaie « Boucle et retour » ou une autre destination.`);
+      avertissements.push(
+        ecartesMeteo.some(repond)
+          ? `⛈️ Orage ou vent fort prévus : ${ENVIES[envie].toLowerCase()} déconseillée sur ce trajet à ces dates.`
+          : `Pas de ${ENVIES[envie].toLowerCase()} près de ce trajet : essaie « Boucle et retour » ou une autre destination.`,
+      );
       continue;
     }
     const remplacable = choisis.filter((c) => !enviesDe(c, p.envies).some((e) => ACTIVITES.has(e) || e === 'unesco'));
@@ -402,6 +416,9 @@ export function planifier(pack, p) {
     a.jour = j < 0 ? jours.length - 1 : j;
   }
   const favorisInclus = jours.flatMap((j) => j.etapes).filter((e) => favoris.has(e.id)).length;
+  const activitesEcartees = ecartesMeteo.filter((l) => l.activite && p.envies.includes(l.activite));
+  if (activitesEcartees.length && !avertissements.some((a) => a.startsWith('⛈️')))
+    avertissements.push(`⛈️ Météo : ${activitesEcartees.length} activité(s) écartée(s) (orage ou vent fort prévus), d'autres choisies à la place.`);
   // Pas encore validé : le compte rendu doit être relu avant le départ.
   return { params: p, cible: { nom: cible.nom, lat: cible.lat, lon: cible.lon }, jours, avertissements, alternatives, favorisInclus, valide: false, cree: Date.now() };
 }
@@ -444,7 +461,7 @@ export function ajouterEtape(pack, plan, j, lieu) {
       meilleur = i;
     }
   }
-  jour.etapes.splice(meilleur, 0, { ...resume(lieu), pourquoi: justifier(lieu, plan.params.envies), visiteMin: lieu.categorie === 'decouvrir' || lieu.activite ? dureeVisite(lieu) : lieu.categorie === 'manger' ? 45 : 20 });
+  jour.etapes.splice(meilleur, 0, { ...resume(lieu), pourquoi: justifier(lieu, plan.params.envies), visiteMin: lieu.categorie === 'decouvrir' || lieu.activite ? dureeVisite(lieu) : lieu.categorie === 'manger' ? 45 : lieu.categorie === 'carburant' ? 10 : 20 });
   recalculerJour(pack, jour, conduiteMax(plan));
 }
 
@@ -549,4 +566,54 @@ export function garderEtapes(pack, plan, idsGardes) {
     jour.etapes = jour.etapes.filter((e) => idsGardes.has(e.id));
     if (jour.etapes.length !== avant) recalculerJour(pack, jour, conduiteMax(plan));
   }
+}
+
+/**
+ * Stations-service le long de la journée `jour` (à moins de `ecartMaxKm` de la route), entre deux km
+ * du trajet, qui vendent le carburant voulu (si on le sait). Les moins chères d'abord.
+ */
+export function stationsSurLaRoute(pack, jour, { carburant, deKm = 0, aKm = Infinity, ecartMaxKm = 2 } = {}) {
+  if (!jour.coords?.length) return [];
+  const route = preparerRoute(jour.coords);
+  const dedans = rectangle(jour.coords, ecartMaxKm + 1);
+  return pack.lieux
+    .filter((l) => l.categorie === 'carburant' && dedans(l) && (!carburant || !l.carburants || l.carburants.includes(carburant)))
+    .map((l) => ({ l, sit: situer(route, l) }))
+    .filter(({ sit }) => sit.ecart <= ecartMaxKm && sit.s >= deKm && sit.s <= aKm)
+    .map(({ l, sit }) => ({ ...resume(l), kmDansJour: Math.round(sit.s), ecartKm: Math.round(sit.ecart * 10) / 10 }))
+    .sort((a, b) => (a.prix?.[carburant] ?? Infinity) - (b.prix?.[carburant] ?? Infinity) || a.ecartKm - b.ecartKm);
+}
+
+/** Pleins prévus : les stations ajoutées au parcours (plein complet), avec leur km dans la journée. */
+export function pleinsPrevus(plan) {
+  return plan.jours.flatMap((j, i) =>
+    j.etapes.filter((e) => e.categorie === 'carburant').map((e) => ({ jour: i, km: kmDansLaJournee(j.profil ?? [], e), prevu: true })),
+  );
+}
+
+const DEHORS = new Set(['viaferrata', 'escalade', 'canoe', 'baignade', 'randonnee']);
+const A_L_ABRI = /musée|grotte|aven|château|abbaye|église|cathédrale|chapelle|monastère/i;
+const VUE = /point de vue|sommet|belvédère|panorama|\bcol\b/i;
+
+/**
+ * Effet de la météo (`risques` de terrain/src/meteo.js) sur l'intérêt d'un lieu ce jour-là.
+ * -Infinity : à éviter (orage ou vent fort pour la via ferrata, l'escalade, le canoë, la rando).
+ */
+export function ajustementMeteo(l, r) {
+  if (!r) return 0;
+  if (r.orage && ['viaferrata', 'escalade', 'canoe', 'randonnee'].includes(l.activite)) return -Infinity;
+  if (r.vent && ['viaferrata', 'escalade'].includes(l.activite)) return -Infinity;
+  const t = texteLieu(l);
+  let effet = 0;
+  if (r.pluie || r.orage) {
+    if (DEHORS.has(l.activite) || VUE.test(t)) effet -= 2;
+    if (A_L_ABRI.test(t)) effet += 1.5;
+  }
+  if (r.chaleur) {
+    if (l.activite === 'baignade' || l.activite === 'canoe') effet += 1.5;
+    if (l.activite === 'randonnee' && (l.niveauRang ?? 1) >= 2) effet -= 1;
+  }
+  if (r.vent && VUE.test(t)) effet -= 1;
+  if (r.neige && (DEHORS.has(l.activite) || VUE.test(t))) effet -= 2;
+  return effet;
 }

@@ -10,6 +10,7 @@ export const COULEURS = {
   decouvrir: '#b5651d',
   manger: '#c0392b',
   dormir: '#3b3f8f',
+  carburant: '#212121',
 };
 
 const vide = { type: 'FeatureCollection', features: [] };
@@ -76,6 +77,8 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
       carte.addSource('position', { type: 'geojson', data: vide });
       carte.addSource('deja', { type: 'geojson', data: vide });
       carte.addSource('decouverte', { type: 'geojson', data: vide });
+      carte.addSource('trace', { type: 'geojson', data: vide });
+      carte.addSource('meteo', { type: 'geojson', data: vide });
       carte.addLayer({
         id: 'parcours-bord',
         type: 'line',
@@ -100,6 +103,14 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         source: 'deja',
         layout: { 'text-field': '✓', 'text-font': ['Noto Sans Medium'], 'text-size': 13, 'text-allow-overlap': true },
         paint: { 'text-color': '#8a8f86', 'text-halo-color': '#ffffff', 'text-halo-width': 2 },
+      });
+      // Le trajet déjà fait (positions enregistrées), en pointillés bleus.
+      carte.addLayer({
+        id: 'trace',
+        type: 'line',
+        source: 'trace',
+        paint: { 'line-color': '#1a73e8', 'line-width': 3, 'line-dasharray': [2, 1.5] },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
       });
       // Lieux à découvrir cochés dans l'onglet Carte ; ceux gardés « pour plus tard » cerclés de noir.
       carte.addLayer({
@@ -173,6 +184,13 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         paint: { 'text-color': '#ffffff' },
       });
       carte.addLayer({
+        id: 'meteo',
+        type: 'symbol',
+        source: 'meteo',
+        layout: { 'text-field': ['get', 'texte'], 'text-font': ['Noto Sans Medium'], 'text-size': 14, 'text-allow-overlap': true },
+        paint: { 'text-color': '#1d2a20', 'text-halo-color': '#ffffff', 'text-halo-width': 2 },
+      });
+      carte.addLayer({
         id: 'position',
         type: 'circle',
         source: 'position',
@@ -242,6 +260,13 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         const f = ev.features.find((x) => x.properties.genre === 'etape');
         if (f) rappel(f.properties.id);
       });
+    },
+    /** Prévisions sur la carte : « ⛅ 22° » à chaque point. */
+    afficherMeteo(points) {
+      donnees('meteo', { type: 'FeatureCollection', features: points.map((p) => point(p, { texte: p.texte })) });
+    },
+    afficherTrace(coords) {
+      donnees('trace', coords.length > 1 ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }] } : vide);
     },
     afficherDecouverte(liste) {
       donnees('decouverte', {
