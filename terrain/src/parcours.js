@@ -237,7 +237,8 @@ export function planifier(pack, p) {
   const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;
   const nbJours = p.jours <= 1 ? 1 : Math.round(p.jours);
   const boucle = p.mode !== 'destination';
-  const porteeKm = rythme.conduiteH * 45 * Math.max(1, nbJours) * (boucle ? 0.35 : 0.8);
+  // Jusqu'où aller : selon les jours et le rythme, et pas plus loin que ce que permet le plein (mode « Avec mon plein »).
+  const porteeKm = Math.min(p.porteeMaxKm ?? Infinity, rythme.conduiteH * 45 * Math.max(1, nbJours) * (boucle ? 0.35 : 0.8));
   const cible =
     p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris) ?? p.depart;
 

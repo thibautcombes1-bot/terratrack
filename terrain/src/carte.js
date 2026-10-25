@@ -79,6 +79,10 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
       carte.addSource('decouverte', { type: 'geojson', data: vide });
       carte.addSource('trace', { type: 'geojson', data: vide });
       carte.addSource('meteo', { type: 'geojson', data: vide });
+      carte.addSource('portee', { type: 'geojson', data: vide });
+      // Zone atteignable aller-retour avec le carburant (mode « Avec mon plein »).
+      carte.addLayer({ id: 'portee-fond', type: 'fill', source: 'portee', paint: { 'fill-color': '#2f7d4a', 'fill-opacity': 0.08 } });
+      carte.addLayer({ id: 'portee-bord', type: 'line', source: 'portee', paint: { 'line-color': '#2f7d4a', 'line-width': 2, 'line-dasharray': [3, 2] } });
       carte.addLayer({
         id: 'parcours-bord',
         type: 'line',
@@ -260,6 +264,16 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         const f = ev.features.find((x) => x.properties.genre === 'etape');
         if (f) rappel(f.properties.id);
       });
+    },
+    /** Cercle de la zone atteignable (rayon en km), ou rien. */
+    afficherPortee(centre, rayonKm) {
+      if (!centre || !rayonKm) return donnees('portee', vide);
+      const kx = 111.32 * Math.cos((centre.lat * Math.PI) / 180);
+      const tour = Array.from({ length: 65 }, (_, k) => {
+        const a = (k / 64) * 2 * Math.PI;
+        return [centre.lon + (rayonKm / kx) * Math.cos(a), centre.lat + (rayonKm / 110.57) * Math.sin(a)];
+      });
+      donnees('portee', { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [tour] }, properties: {} }] });
     },
     /** Prévisions sur la carte : « ⛅ 22° » à chaque point. */
     afficherMeteo(points) {

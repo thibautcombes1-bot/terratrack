@@ -172,8 +172,8 @@ for (const b of document.querySelectorAll('[data-vue]')) b.addEventListener('cli
 const form = $('#preparer');
 const brouillon = memoire.lire('brouillon', {});
 const GROUPES = {
-  mode: { options: { destination: 'Une destination', boucle: 'Boucle et retour', surprise: 'Surprends-moi' }, unique: true, defaut: ['destination'] },
-  jours: { options: [['0.5', '½ journée'], ['1', '1 jour'], ['2', 'Week-end'], ['3', '3 jours']], unique: true, defaut: ['2'] },
+  mode: { options: { destination: 'Une destination', boucle: 'Boucle et retour', surprise: 'Surprends-moi', plein: '⛽ Avec mon plein' }, unique: true, defaut: ['destination'] },
+  jours: { options: [['0.5', '½ journée'], ['1', '1 jour'], ['2', 'Week-end'], ['3', '3 jours'], ['5', '5 jours'], ['7', 'Une semaine']], unique: true, defaut: ['2'] },
   rythme: { options: Object.fromEntries(Object.entries(RYTHMES).map(([k, r]) => [k, r.nom])), unique: true, defaut: ['normal'] },
   peages: { options: [['autorises', 'Péages autorisés'], ['eviter', 'Éviter les péages']], unique: true, defaut: ['autorises'] },
   envies: { options: ENVIES, unique: false, defaut: ['patrimoine', 'panoramas', 'nature'] },
@@ -215,9 +215,14 @@ function majReglages() {
     const x = Number.parseFloat(String(form.elements[nom].value).replace(',', '.'));
     v[nom] = Number.isFinite(x) && x > 0 ? x : nom === 'prix' || nom === 'budget' ? null : v[nom];
   }
+  if (v.litresDepart > v.reservoir) {
+    v.reservoir = v.litresDepart;
+    form.elements.reservoir.value = v.reservoir;
+  }
   ecrireVehicule(v);
   memoire.ecrire('guidage', choix('guidage')[0] ?? 'organic');
   if (plan) rendreParcours();
+  majPortee();
 }
 form.addEventListener('input', (ev) => {
   if (CHAMPS_VEHICULE.includes(ev.target.name)) majReglages();
@@ -229,8 +234,38 @@ function vehiculeCalcul() {
 }
 function majMode() {
   const mode = choix('mode')[0];
-  $('#champ-destination').hidden = mode === 'surprise';
+  $('#champ-destination').hidden = mode === 'surprise' || mode === 'plein';
   $('#champ-destination').firstChild.textContent = mode === 'boucle' ? 'Autour de quel endroit ?' : 'Où vas-tu ?';
+  majPortee();
+}
+
+/**
+ * Mode « Avec mon plein » : les km possibles sans entamer la réserve (~5 % de plus qu'au calcul
+ * moyen, pour la route réelle), et le rayon d'une boucle aller-retour avec ses détours.
+ */
+function porteePlein() {
+  const v = vehiculeCalcul();
+  const reserveL = Math.max(v.reservoir * 0.1, (v.reserveKm * v.conso) / 100);
+  const kmUtiles = Math.max(0, ((Math.min(v.litresDepart, v.reservoir) - reserveL) / v.conso) * 100) / 1.05;
+  return { kmUtiles, rayon: kmUtiles / 2.6, v };
+}
+function majPortee() {
+  const info = $('#info-plein');
+  const enPlein = choix('mode')[0] === 'plein';
+  info.hidden = !enPlein;
+  if (!enPlein) return carte.afficherPortee(null);
+  const { kmUtiles, rayon, v } = porteePlein();
+  info.textContent = `⛽ Avec ${litresTexte(v.litresDepart)} de ${CARBURANTS[v.carburant].toLowerCase()} (${String(v.conso).replace('.', ',')} L/100) : ~${Math.round(kmUtiles)} km sans entamer la réserve. Je te propose une boucle avec retour, jusqu’à ~${Math.round(rayon)} km de ton départ (le cercle sur la carte), selon les jours choisis.`;
+  if (choisiesLieux.depart) {
+    carte.afficherPortee(choisiesLieux.depart, rayon);
+    carte.cadrer(
+      [
+        [choisiesLieux.depart.lon - rayon / 75, choisiesLieux.depart.lat - rayon / 111],
+        [choisiesLieux.depart.lon + rayon / 75, choisiesLieux.depart.lat + rayon / 111],
+      ],
+      30,
+    );
+  }
 }
 /** Remet dans « Préparer » les réponses d'un voyage passé, pour le refaire à une nouvelle date. */
 function remplirPreparer(p) {
@@ -275,6 +310,7 @@ function autocompletion(nom) {
       choisiesLieux[nom] = c;
       champ.value = c.nom;
       liste.hidden = true;
+      if (nom === 'depart') majPortee();
     };
   });
 }
@@ -290,7 +326,7 @@ form.addEventListener('submit', async (ev) => {
   const mode = choix('mode')[0];
   const p = {
     depart: choisiesLieux.depart,
-    destination: mode === 'surprise' ? null : choisiesLieux.destination,
+    destination: mode === 'surprise' || mode === 'plein' ? null : choisiesLieux.destination,
     mode,
     jours: Number(choix('jours')[0]),
     date: form.elements.date.value,
@@ -314,8 +350,19 @@ form.addEventListener('submit', async (ev) => {
   trace = [];
   memoire.ecrire('trace', trace);
   carte.afficherTrace(trace);
+  const calculer = (extra = {}) => {
+    if (mode !== 'plein') return planifier(pack, { ...p, ...extra });
+    let rayon = porteePlein().rayon;
+    let essai;
+    for (let n = 0; n < 5; n++) {
+      essai = planifier(pack, { ...p, ...extra, porteeMaxKm: rayon });
+      if (!bilanCarburant(essai.jours, vehiculeCalcul(), []).alerte) break;
+      rayon *= 0.75;
+    }
+    return essai;
+  };
   try {
-    plan = planifier(pack, p);
+    plan = calculer();
   } catch (e) {
     return montrerErreur(erreur, e.message);
   }
@@ -325,13 +372,14 @@ form.addEventListener('submit', async (ev) => {
   bouton.textContent = 'Météo du trajet…';
   if (await chargerMeteo(pointsMeteo(plan)).catch(() => false) || plan.jours.some((j) => meteoA(j.fin.lat, j.fin.lon, j.date))) {
     try {
-      plan = planifier(pack, { ...p, meteo: (l, date) => risques(meteoJournee(l.lat, l.lon, date)) });
+      plan = calculer({ meteo: (l, date) => risques(meteoJournee(l.lat, l.lon, date)) });
     } catch {
       // On garde le parcours sans météo.
     }
   }
   bouton.disabled = false;
   bouton.textContent = 'Proposer un parcours';
+  carte.afficherPortee(null);
   jourActif = 0;
   enregistrer();
   ouvrirOnglet('parcours', 'parcours');
@@ -518,6 +566,7 @@ function rendreCompteRendu(zone) {
     ${blocCarburant()}
     <p class="info">Ce qui te plaît : ${h(plan.params.envies.map((e) => ENVIES[e]).join(', ') || 'rien de coché')}</p>
     ${plan.favorisInclus ? `<p class="info">⭐ ${plan.favorisInclus} lieu(x) de ta liste « Plus tard » inclus.</p>` : ''}
+    ${plan.params.mode === 'plein' ? '<p class="info">⛽ Boucle choisie pour ton plein : retour au départ sans refaire le plein.</p>' : ''}
     ${(plan.avertissements ?? []).map((a) => `<p class="alerte">⚠️ ${h(a)}</p>`).join('')}
     ${plan.jours
       .map((j, i) => {

@@ -6,5 +6,5 @@
     "contentInset": "never",
     "backgroundColor": "#f6f3ea"
   },
-  "loggingBehavior": "production"
+  "loggingBehavior": "none"
 }
