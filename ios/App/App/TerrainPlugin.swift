@@ -4,6 +4,7 @@ import Capacitor
 import CoreLocation
 import Foundation
 import UIKit
+import AVFoundation
 #if canImport(ActivityKit)
 import ActivityKit
 #endif
@@ -132,10 +133,12 @@ final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
 }
 
 @objc(TerrainPlugin)
-public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin {
+public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin, AVSpeechSynthesizerDelegate {
     public let identifier = "TerrainPlugin"
     public let jsName = "Terrain"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "guidageParler", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "guidageEcran", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "partager", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "suiviDemarrer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "suiviArreter", returnType: CAPPluginReturnPromise),
@@ -146,6 +149,44 @@ public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "liveActivityMettreAJour", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityArreter", returnType: CAPPluginReturnPromise),
     ]
+
+    private let voixGuidage = AVSpeechSynthesizer()
+
+    public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    @objc func guidageEcran(_ call: CAPPluginCall) {
+        let actif = call.getBool("actif") ?? false
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = actif
+            call.resolve()
+        }
+    }
+
+    @objc func guidageParler(_ call: CAPPluginCall) {
+        let texte = call.getString("texte") ?? ""
+        DispatchQueue.main.async {
+            self.voixGuidage.stopSpeaking(at: .immediate)
+            guard !texte.isEmpty else {
+                try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+                call.resolve()
+                return
+            }
+            do {
+                let audio = AVAudioSession.sharedInstance()
+                try audio.setCategory(.playback, mode: .voicePrompt, options: [.duckOthers])
+                try audio.setActive(true)
+                let phrase = AVSpeechUtterance(string: texte)
+                phrase.voice = AVSpeechSynthesisVoice(language: "fr-FR")
+                self.voixGuidage.delegate = self
+                self.voixGuidage.speak(phrase)
+                call.resolve()
+            } catch {
+                call.reject("Annonces vocales indisponibles")
+            }
+        }
+    }
 
     override public func load() {
         DispatchQueue.main.async {

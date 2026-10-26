@@ -1,5 +1,13 @@
 # TerraTrack sur téléphone
 
+## Navigation intégrée
+
+Le guidage 3D utilise la carte locale MapLibre/Protomaps et les étapes de navigation du service OSRM de FOSSGIS. Le calcul initial et les recalculs demandent une connexion ; les consignes d'un trajet calculé sont conservées localement pour le poursuivre hors réseau. Un seul trajet est conservé, pendant au plus 24 heures. Le profil est automobile, sans contrôle des gabarits.
+
+L'écran de navigation affiche les manœuvres en français, la distance restante et l'arrivée estimée. Les commandes permettent de passer en 2D, couper la voix, reprendre le suivi après déplacement de la carte et terminer le guidage. Le GPS ancien ou imprécis suspend les consignes ; une sortie de route demande un recalcul. Sur iPhone, la voix et le maintien de l'écran allumé passent par le plugin natif Terrain. Les consignes sont mises à jour au premier plan.
+
+Code : `terrain/src/navigation.js` (réponse OSRM et progression), `navigation-interface.js` (session et commandes), `navigation.css` et `carte.js`. Les tests ne contactent pas le serveur public ; ne pas utiliser ce service pour des tests automatisés en charge.
+
 Application de terrain dans `terrain/`, embarquée sur iPhone avec Capacitor dans `ios/`.
 Le planificateur web historique à la racine est une application distincte.
 

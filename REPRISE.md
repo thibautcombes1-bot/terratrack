@@ -159,6 +159,14 @@ des idées proches (baignade, randonnée courte) même hors envies, en les propo
 - **Installation iPhone** :
   - Build 3 compilé, signé et installé sur l'iPhone Air physique via `devicectl`.
 
+## Guidage intégré du 26 octobre 2026
+
+- Navigation ouverte par « Démarrer le GPS 3D » ou depuis les actions d'un lieu. Carte MapLibre inclinée, bâtiments Protomaps extrudés, suivi du cap et du GPS, bascule 2D/3D, recentrage et sortie du mode de navigation.
+- Manœuvres OSRM / FOSSGIS en français, distances et estimation d'arrivée. Le calcul initial et le recalcul demandent du réseau ; un trajet calculé est conservé localement au plus 24 heures. Les données nécessaires au calcul sont envoyées au service. Pas de moteur complet de manœuvres hors ligne ; profil automobile sans gabarit van.
+- GPS ancien ou imprécis : consignes suspendues. Hors trajet confirmé : recalcul en ligne avec temporisation ; hors réseau, l'écran demande une reconnexion. Annonces actualisées au premier plan, via AVSpeechSynthesizer sur iPhone, et maintien de l'écran allumé pendant le guidage.
+- Vérification : 50 tests passent ; construction terrain et compilation iPhone signée réussies. Essais visuels automatisés sur petit écran et ordinateur, GPS et réseau simulés, sans erreur dans l'application complète. La navigation et la voix en trajet réel restent à vérifier sur le téléphone.
+- TerraTrack 1.0 (build 4) installée en mise à jour sur l'iPhone Air physique ; présence et numéro de build relus après installation. Le lancement automatique a été refusé parce que le téléphone était verrouillé ; l'affichage sur l'appareil n'a donc pas été vérifié.
+
 ## Idées notées pour plus tard
 
 - Version Android (Capacitor sait le faire) puis Android Auto ; TerraTrack sur CarPlay demande une

@@ -71,6 +71,13 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
 
   const pret = new Promise((resolu) =>
     carte.on('load', () => {
+      carte.addLayer({
+        id: 'batiments-3d', type: 'fill-extrusion', source: 'protomaps', 'source-layer': 'buildings',
+        minzoom: 13, layout: { visibility: 'none' },
+        paint: { 'fill-extrusion-color': '#c1cbd0', 'fill-extrusion-height': ['coalesce', ['get', 'height'], 6],
+          'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0], 'fill-extrusion-opacity': 0.8 },
+      });
+      carte.addSource('guidage', { type: 'geojson', data: vide });
       carte.addSource('parcours', { type: 'geojson', data: vide });
       carte.addSource('arrets', { type: 'geojson', data: vide });
       carte.addSource('suggestions', { type: 'geojson', data: vide });
@@ -205,15 +212,52 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
           'circle-stroke-width': 3,
         },
       });
+      carte.addLayer({ id: 'guidage-bord', type: 'line', source: 'guidage', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': 11 } });
+      carte.addLayer({ id: 'guidage-trace', type: 'line', source: 'guidage', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#1769e0', 'line-width': 6 } });
       resolu();
     }),
   );
 
   const donnees = (source, data) => pret.then(() => carte.getSource(source).setData(data));
+  const fleche = document.createElement('div');
+  fleche.className = 'nav-vehicule'; fleche.setAttribute('aria-label', 'Votre position');
+  const vehicule = new maplibregl.Marker({ element: fleche, rotationAlignment: 'map', pitchAlignment: 'map' });
+  let navigation = false, derniereCamera = '';
 
   return {
     carte,
     pret,
+    modeNavigation(actif, vue3d = true) {
+      navigation = actif; derniereCamera = '';
+      pret.then(() => {
+        carte.setLayoutProperty('batiments-3d', 'visibility', actif && vue3d ? 'visible' : 'none');
+        carte.setLayoutProperty('position', 'visibility', actif ? 'none' : 'visible');
+        if (!actif) {
+          vehicule.remove();
+          carte.easeTo({ pitch: 0, bearing: 0, padding: { top: 0, right: 0, bottom: 0, left: 0 }, duration: 500 });
+        }
+      });
+    },
+    afficherGuidage(coords) {
+      donnees('guidage', coords.length > 1 ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {},
+        geometry: { type: 'LineString', coordinates: coords } }] } : vide);
+    },
+    suivreNavigation(coord, cap, vue3d = true) {
+      vehicule.setLngLat(coord).setRotation(cap).addTo(carte);
+      const cle = coord.join(',') + ':' + Math.round(cap) + ':' + vue3d;
+      if (cle === derniereCamera) return;
+      derniereCamera = cle;
+      const grand = conteneur.clientWidth >= 760;
+      const haut = document.querySelector('.nav-consigne')?.getBoundingClientRect();
+      const bas = document.querySelector('.nav-bas')?.getBoundingClientRect();
+      const padding = grand ? { top: 50, right: 50, bottom: 70, left: 460 }
+        : { top: Math.min(haut?.bottom + 12 || 140, conteneur.clientHeight * 0.3), right: 32, left: 32,
+          bottom: Math.min((bas?.height || 210) + 20, conteneur.clientHeight * 0.38) };
+      carte.easeTo({ center: coord, pitch: vue3d ? 58 : 0, bearing: vue3d ? cap : 0,
+        zoom: 16, padding, duration: 850 });
+    },
     /** Dessine le parcours ; le jour `actif` est mis en avant. */
     afficherParcours(plan, actif = -1) {
       if (!plan) {
@@ -253,6 +297,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
       donnees('position', p ? { type: 'FeatureCollection', features: [point(p, {})] } : vide);
     },
     suivrePosition(p) {
+      if (navigation) return;
       carte.easeTo({ center: [p.lon, p.lat], zoom: Math.max(12, carte.getZoom()), padding: marges(36), duration: 700 });
     },
     cadrer(coords, marge = 60) {

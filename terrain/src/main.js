@@ -2,6 +2,7 @@
 import { BOUTONS, suggerer } from './boutons.js';
 import { avancerSurFeuille, dateLocale, etatGps, extrairePointsPassage, lirePoint, positionRecente } from './suivi.js';
 import { COULEURS, creerCarte } from './carte.js';
+import { creerNavigation } from './navigation-interface.js';
 import { h, heure, duree, km, versMinutes, dateTexte, moisTexte, simplifier, memoire } from './outils.js';
 import { chargerPack, etatMiseAJour, miseAJourPossible, verifierMiseAJour } from './pack.js';
 import { comprendre, correspond, iaDisponible } from './ia.js';
@@ -208,7 +209,7 @@ const GROUPES = {
   // Réglages gardés d'un voyage à l'autre (pas dans le brouillon) : véhicule et appli de guidage.
   vehicule: { options: Object.fromEntries(Object.entries(VEHICULES).map(([k, v]) => [k, v.nom])), unique: true, defaut: [lireVehicule().type], reglage: true },
   carburant: { options: CARBURANTS, unique: true, defaut: [lireVehicule().carburant], reglage: true },
-  guidage: { options: [['organic', 'Organic Maps'], ['waze', 'Waze'], ['plans', 'Plans']], unique: true, defaut: [memoire.lire('guidage', 'organic')], reglage: true },
+  guidage: { options: [['interne', 'TerraTrack 3D'], ['organic', 'Organic Maps'], ['waze', 'Waze'], ['plans', 'Plans']], unique: true, defaut: [memoire.lire('guidage', 'interne')], reglage: true },
 };
 for (const [nom, g] of Object.entries(GROUPES)) {
   const zone = form.querySelector(`[data-groupe="${nom}"]`);
@@ -255,7 +256,7 @@ function majReglages() {
     form.elements.reservoir.value = v.reservoir;
   }
   ecrireVehicule(v);
-  memoire.ecrire('guidage', choix('guidage')[0] ?? 'organic');
+  memoire.ecrire('guidage', choix('guidage')[0] ?? 'interne');
   if (plan) rendreParcours();
   majResumeVehicule();
   majPortee();
@@ -828,9 +829,24 @@ function rendreJour(j, i) {
  * Guidage jusqu'au point par une appli de navigation. Organic Maps fonctionne hors ligne (cartes
  * téléchargées dans l'appli) ; son itinéraire part de la position connue, sinon il montre le point.
  */
-const NOMS_GUIDAGE = { organic: 'Organic Maps', waze: 'Waze', plans: 'Plans' };
-const guidagePrefere = () => memoire.lire('guidage', 'organic');
+const NOMS_GUIDAGE = { interne: 'TerraTrack 3D', organic: 'Organic Maps', waze: 'Waze', plans: 'Plans' };
+const guidagePrefere = () => memoire.lire('guidage', 'interne');
 async function guider(appli, cible) {
+  if (appli === 'interne') {
+    const jour = plan?.jours[jourActif];
+    return navigation.demarrer(cible, {
+      eviterPeages: Boolean(jour?.eviterPeages),
+      passages(depart, arrivee) {
+        if (!jour?.coords?.length) return [];
+        const route = routeDe(jour.coords);
+        const a = situer(route, depart), b = situer(route, arrivee);
+        if (a.ecart > 0.2 || b.ecart > 0.2 || b.s <= a.s) return [];
+        const points = route.coords.filter((_, i) => route.cumul[i] > a.s + 0.2 && route.cumul[i] < b.s - 0.2);
+        const pas = Math.max(1, Math.ceil(points.length / 20));
+        return points.filter((_, i) => i % pas === 0).map(([lon, lat]) => ({ lon, lat }));
+      },
+    });
+  }
   if (natif && !etatSuivi.demande && plan?.valide && !plan.suiviArrete) await activerSuivi();
   // Le bouton principal mène à l'étape choisie ; les passages intermédiaires restent dans le KML.
   const point = cible;
@@ -843,13 +859,13 @@ async function guider(appli, cible) {
   }
   window.open(appli === 'waze' ? `https://waze.com/ul?ll=${point.lat},${point.lon}&navigate=yes` : `https://maps.apple.com/?daddr=${point.lat},${point.lon}&q=${n}&dirflg=d`, '_blank');
 }
-const boutonGuidage = (l) => `<button type="button" data-guide="${l.lat},${l.lon}" data-nom="${h(l.nom ?? '')}">🧭 ${NOMS_GUIDAGE[guidagePrefere()]}</button>`;
+const boutonGuidage = (l) => `<button type="button" data-guide="${l.lat},${l.lon}" data-nom="${h(l.nom ?? '')}">🧭 TerraTrack 3D</button>`;
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-guide]');
   if (!b) return;
   ev.stopPropagation();
   const [lat, lon] = b.dataset.guide.split(',');
-  guider(guidagePrefere(), { lat, lon, nom: b.dataset.nom });
+  guider('interne', { lat: Number(lat), lon: Number(lon), nom: b.dataset.nom });
 }, true);
 
 /** L'information et sa date : vérifiée sur place, ou dernière mise à jour dans OpenStreetMap. */
@@ -953,6 +969,8 @@ let suivi = null;
 let etatSuivi = { actif: false, demande: false };
 let lectureEnCours = false;
 let dernierPointTrace = 0;
+const navigation = creerNavigation({ carte, obtenirPosition: () => position, gpsActif: () => etatSuivi.actif,
+  activerGps: activerSuivi, natif, terrainNatif: TerrainNatif });
 carte.pret.then(() => carte.afficherTrace(trace));
 
 function heureDuTelephone() {
@@ -969,7 +987,10 @@ function rendreEtatGps() {
   $('#recentrer').disabled = !position;
   const disponible = Boolean(plan?.valide && etatSuivi.actif && positionRecente(position));
   for (const bouton of document.querySelectorAll('[data-bouton], #form-demande button, #demande')) bouton.disabled = !disponible;
-  $('#info-guidage').textContent = `Guidage avec ${NOMS_GUIDAGE[guidagePrefere()]}. TerraTrack suit le GPS du téléphone pendant votre navigation et retrouve votre avancée au retour.`;
+  $('#info-guidage').textContent = guidagePrefere() === 'interne'
+    ? 'Calcul du guidage avec une connexion, puis consignes conservées sur ce téléphone.'
+    : `Guidage avec ${NOMS_GUIDAGE[guidagePrefere()]}. TerraTrack suit le GPS du téléphone pendant votre navigation.`;
+  navigation.actualiser();
 }
 
 function preparerRoute() {
@@ -1028,7 +1049,7 @@ function traiterPoints(points) {
   if (vue === 'route' && ongletCourant === 'parcours' && centrerGps && positionRecente(position)) carte.suivrePosition(position);
   const etapes = new Set(plan?.jours.flatMap((x) => x.etapes.map((e) => e.id)) ?? []);
   for (const l of passes.filter((l) => etapes.has(l.id))) afficherToast(`Étape atteinte : ${l.nom}`);
-  if (positionRecente(position)) surveillerItineraire(position.quand);
+  if (positionRecente(position) && !navigation.actif) surveillerItineraire(position.quand);
   rendreEtatGps();
   rendreAvancee();
   rendreCarburantRoute();
@@ -1185,7 +1206,7 @@ const etapesFaites = () => new Set(plan ? tousLesPassages().filter((p) => p.date
 
 let prochaineEtape = null;
 document.addEventListener('click', (ev) => {
-  if (ev.target.closest('[data-prochaine]') && prochaineEtape) guider(guidagePrefere(), prochaineEtape);
+  if (ev.target.closest('[data-prochaine]') && prochaineEtape) guider('interne', prochaineEtape);
 });
 
 /** Où j'en suis : km faits, étapes faites, prochaine étape, arrivée estimée et écart au programme. */
@@ -1195,7 +1216,7 @@ function rendreAvancee() {
   const j = plan.jours[jourActif];
   prochaineEtape = j.etapes.find((e) => !etapesFaites().has(e.id)) ?? j.fin;
   if (!positionRecente(position) || !etatSuivi.actif) {
-    zone.innerHTML = `<div class="carte-direct attente-gps"><span class="surtitre">PROCHAINE ÉTAPE</span><h2>${h(prochaineEtape.nom)}</h2><p>Votre position GPS mettra à jour la distance, l’avancée et l’heure d’arrivée.</p><button type="button" class="principal" data-prochaine>Ouvrir ${NOMS_GUIDAGE[guidagePrefere()]} <span aria-hidden="true">↗</span></button></div>`;
+    zone.innerHTML = `<div class="carte-direct attente-gps"><span class="surtitre">PROCHAINE ÉTAPE</span><h2>${h(prochaineEtape.nom)}</h2><p>Votre position GPS mettra à jour la distance, l’avancée et l’heure d’arrivée.</p><button type="button" class="principal" data-prochaine>Démarrer le GPS 3D <span aria-hidden="true">↗</span></button></div>`;
     return;
   }
   const avancement = avancerSurFeuille(j, position, etapesFaites());
@@ -1214,7 +1235,7 @@ function rendreAvancee() {
       <div class="ligne-direct"><span class="surtitre">PROCHAINE ÉTAPE</span><span class="badge-direct">En direct</span></div>
       <h2>${h(prochaine.nom)}</h2>
       <div class="prochaine-distance">${versProchaine ? `${km(versProchaine.metres)} <span>· ${duree(versProchaine.secondes / 60)}</span>` : 'Calcul du trajet indisponible'}</div>
-      <button type="button" class="principal" data-prochaine>Continuer avec ${NOMS_GUIDAGE[guidagePrefere()]} <span aria-hidden="true">↗</span></button>
+      <button type="button" class="principal" data-prochaine>Démarrer le GPS 3D <span aria-hidden="true">↗</span></button>
       <div class="progression-voyage"><div><strong>${Math.round(faitKm)} <span>/ ${Math.round(totalKm)} km</span></strong><span>${pourcent} %</span></div><div class="jauge" role="progressbar" aria-label="Avancée du jour" aria-valuenow="${pourcent}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pourcent}%"></span></div></div>
       <div class="mesures-direct"><div><small>Arrivée du jour</small><strong>${arrivee == null ? '—' : heure(arrivee)}</strong></div><div><small>Feuille de route</small><strong class="${ecart > 5 ? 'retard' : ''}">${h(retard)}</strong></div><div><small>Étapes atteintes</small><strong>${faites.length} / ${j.etapes.length}</strong></div></div>
       ${ecartKm > 0.5 ? `<p class="alerte">Vous êtes à ${ecartKm.toFixed(1).replace('.', ',')} km du parcours prévu.</p>` : ''}
@@ -1517,6 +1538,7 @@ const allerA = (l) => [
   'Y aller',
   [
     { texte: '🧭 Organic Maps', faire: () => guider('organic', l) },
+    { texte: '🧭 TerraTrack 3D', faire: () => guider('interne', l) },
     { texte: '🧭 Waze', faire: () => guider('waze', l) },
     { texte: '🗺️ Plans', faire: () => guider('plans', l) },
     { texte: '👁️ Voir sur la carte', faire: () => { regler(0); carte.voler(l, 14); } },

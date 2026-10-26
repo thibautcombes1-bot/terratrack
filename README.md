@@ -36,6 +36,14 @@ Dans `terrain/`, le compagnon de route, qui marche **sans réseau** sur toute la
 
 Les données (carte, routes, plus de 600 000 lieux) viennent d'OpenStreetMap. Le robot [`pack-france`](.github/workflows/pack-france.yml) les refait chaque lundi, et l'appli télécharge toute seule ce qui a changé, en Wi-Fi. Compilation et pack : [terrain/README.md](terrain/README.md).
 
+## Guidage intégré en 3D
+
+Le bouton « Démarrer le GPS 3D » ouvre désormais la navigation dans TerraTrack : carte inclinée avec bâtiments du pack, suivi dans le sens du déplacement, prochaine manœuvre, distance et arrivée estimée. Les annonces vocales utilisent la voix française du téléphone ; une commande permet de les couper.
+
+Les consignes viennent du moteur OSRM de FOSSGIS. Une connexion est nécessaire pour le calcul initial et le recalcul après une sortie de route ; la position, la destination et les points de passage sont alors envoyés à ce service. Le trajet calculé est conservé localement pendant au plus 24 heures pour poursuivre ou reprendre le guidage sans réseau. Une perte de GPS suspend les consignes. Le pack routier local reste utilisé pour la préparation des voyages ; il ne fournit pas encore un moteur de manœuvres totalement hors ligne. Le guidage OSRM est un profil voiture et ne vérifie pas les gabarits des vans.
+
+La vue 3D représente les bâtiments disponibles dans le pack (hauteur indicative quand elle manque), sans modèle de relief. Les essais automatiques et visuels ne remplacent pas une validation du guidage et de la voix en trajet sur iPhone. Les annonces intégrées sont actualisées lorsque l'application est au premier plan.
+
 ## Contribuer
 
 Toute aide est bienvenue :
