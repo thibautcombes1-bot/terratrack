@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import readline from 'node:readline';
 import { lignes } from './lignes.mjs';
 import { distanceKm } from '../../commun/geo.js';
+import { corrigerViaFerrata, resumerCotationsVia } from '../../commun/via-ferrata.js';
 
 const arrondi = (x) => Math.round(x * 1e5) / 1e5;
 const decoder = (texte) => texte.replace(/%([0-9a-f]+)%/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)));
@@ -101,9 +102,6 @@ async function randonnees(brut) {
 
 // ---------- Via ferrata ----------
 
-const COTATIONS_VF = ['Sentier', 'F (facile)', 'PD (peu difficile)', 'AD (assez difficile)', 'D (difficile)', 'TD (très difficile)', 'ED (extrêmement difficile)'];
-const rangVF = (cote) => (cote <= 1 ? 1 : cote <= 3 ? 2 : cote === 4 ? 3 : 4);
-const NIVEAUX = ['', 'Facile', 'Moyen', 'Difficile', 'Très difficile'];
 /** « Via Ferrata du Thaurac: Les Deux Cheminées » → « via ferrata du thaurac » (le parcours, pas la variante). */
 const parcoursVF = (nom) => nom.split(/\s*:\s*/)[0].replace(/\s+/g, ' ').trim();
 
@@ -127,15 +125,10 @@ function viaFerrata(segments, departs) {
     if (proche) proche.segments.push(s);
   }
   return [...groupes.values()].map((g) => {
-    const principaux = g.segments.filter((s) => !s.nom || !s.nom.includes(':'));
-    const cotes = (principaux.length ? principaux : g.segments).map((s) => s.cote).filter((c) => Number.isFinite(c));
-    const toutes = g.segments.map((s) => s.cote).filter((c) => Number.isFinite(c));
-    const cote = cotes.length ? Math.round(cotes.reduce((a, b) => a + b, 0) / cotes.length) : null;
     const depart =
       departs.find((d) => d.texte.toLowerCase().includes(g.nom.toLowerCase().replace(/^mini /, ''))) ??
       { lat: g.segments[0].debut.lat, lon: g.segments[0].debut.lon };
     const km = g.segments.reduce((s, x) => s + x.km, 0);
-    const [min, max] = toutes.length ? [Math.min(...toutes), Math.max(...toutes)] : [null, null];
     return {
       id: `vf-${g.segments[0].id}`,
       categorie: 'decouvrir',
@@ -144,11 +137,7 @@ function viaFerrata(segments, departs) {
       nom: g.nom,
       lat: arrondi(depart.lat),
       lon: arrondi(depart.lon),
-      cotation: cote,
-      niveau: cote != null ? NIVEAUX[rangVF(cote)] : undefined,
-      niveauRang: cote != null ? rangVF(cote) : undefined,
-      niveauTexte: cote != null ? `${COTATIONS_VF[cote]}${max > cote ? `, passages jusqu'à ${COTATIONS_VF[max].split(' ')[0]}` : ''}${min < cote ? `, échappatoire ${COTATIONS_VF[min].split(' ')[0]}` : ''}` : undefined,
-      dureeH: cote == null ? 3 : cote <= 2 ? 2 : cote <= 4 ? 3 : 4,
+      ...resumerCotationsVia(g.segments),
       details: [
         km >= 0.1 && `${Math.round(km * 1000)} m de câbles et passages`,
         g.variantes.size && `variantes : ${[...g.variantes].slice(0, 4).join(', ')}`,
@@ -269,7 +258,7 @@ async function sportsNature(brut) {
       source: 'osm',
     });
   }
-  return [...viaFerrata(segments, departs), ...lieux];
+  return corrigerViaFerrata([...viaFerrata(segments, departs), ...lieux]);
 }
 
 // ---------- UNESCO ----------

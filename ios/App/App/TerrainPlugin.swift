@@ -4,6 +4,9 @@ import Capacitor
 import CoreLocation
 import Foundation
 import UIKit
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 
 /// Positions enregistrées pendant le trajet, même appli en arrière-plan (indicateur bleu d'iOS).
 /// Une ligne par position dans suivi.jsonl : [date (ms), lat, lon, précision (m)].
@@ -14,40 +17,66 @@ final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
     private let gestionnaire = CLLocationManager()
     private let fichier = DossiersPack.telecharge.appendingPathComponent("suivi.jsonl")
     private let file = DispatchQueue(label: "terratrack.suivi")
+    var surPosition: (([Double]) -> Void)?
+    var surEtat: (([String: Any]) -> Void)?
+    private var erreur: String?
 
     var actif: Bool { UserDefaults.standard.bool(forKey: "terratrack.suivi") }
+
+    var etat: [String: Any] {
+        let autorisation: String
+        if !CLLocationManager.locationServicesEnabled() { autorisation = "desactivee" }
+        else {
+            switch gestionnaire.authorizationStatus {
+            case .notDetermined: autorisation = "a-demander"
+            case .restricted: autorisation = "limitee"
+            case .denied: autorisation = "refusee"
+            case .authorizedWhenInUse: autorisation = "pendant"
+            case .authorizedAlways: autorisation = "toujours"
+            @unknown default: autorisation = "a-demander"
+            }
+        }
+        return ["demande": actif, "actif": actif && ["pendant", "toujours"].contains(autorisation), "autorisation": autorisation, "erreur": erreur ?? ""]
+    }
 
     func demarrer() {
         gestionnaire.delegate = self
         gestionnaire.activityType = .automotiveNavigation
         gestionnaire.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        // Une position tous les 40 m : assez pour valider les passages (à 250 m près) sans vider la batterie.
-        gestionnaire.distanceFilter = 40
+        // Les positions sont aussi transmises à l'écran, sans attendre la relecture du journal.
+        gestionnaire.distanceFilter = 10
         gestionnaire.pausesLocationUpdatesAutomatically = false
         gestionnaire.allowsBackgroundLocationUpdates = true
         gestionnaire.showsBackgroundLocationIndicator = true
+        UserDefaults.standard.set(true, forKey: "terratrack.suivi")
+        erreur = nil
         switch gestionnaire.authorizationStatus {
         case .notDetermined: gestionnaire.requestWhenInUseAuthorization()
         // Déjà « pendant l'utilisation » : iOS propose une fois de passer à « Toujours ».
         case .authorizedWhenInUse: gestionnaire.requestAlwaysAuthorization()
         default: break
         }
-        gestionnaire.startUpdatingLocation()
-        gestionnaire.startMonitoringSignificantLocationChanges()
-        UserDefaults.standard.set(true, forKey: "terratrack.suivi")
+        if [CLAuthorizationStatus.authorizedWhenInUse, .authorizedAlways].contains(gestionnaire.authorizationStatus) {
+            gestionnaire.startUpdatingLocation()
+            gestionnaire.startMonitoringSignificantLocationChanges()
+        }
+        surEtat?(etat)
     }
 
     func arreter() {
         gestionnaire.stopUpdatingLocation()
         gestionnaire.stopMonitoringSignificantLocationChanges()
         UserDefaults.standard.set(false, forKey: "terratrack.suivi")
+        surEtat?(etat)
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        surEtat?(etat)
         guard actif else { return }
         if manager.authorizationStatus == .authorizedWhenInUse { manager.requestAlwaysAuthorization() }
         if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
             manager.startUpdatingLocation()
+            manager.startMonitoringSignificantLocationChanges()
         }
     }
 
@@ -61,8 +90,13 @@ final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        let lignes = locations
-            .filter { $0.horizontalAccuracy >= 0 }
+        guard actif else { return }
+        let valides = locations.filter { $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy <= 100 }
+        erreur = nil
+        if let derniere = valides.last {
+            surPosition?([derniere.timestamp.timeIntervalSince1970 * 1000, derniere.coordinate.latitude, derniere.coordinate.longitude, derniere.horizontalAccuracy])
+        }
+        let lignes = valides
             .map { l in
                 "[\(Int(l.timestamp.timeIntervalSince1970 * 1000)),\(l.coordinate.latitude),\(l.coordinate.longitude),\(Int(l.horizontalAccuracy))]\n"
             }
@@ -77,6 +111,11 @@ final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
                 try? donnees.write(to: self.fichier)
             }
         }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        erreur = "Signal GPS temporairement indisponible."
+        surEtat?(etat)
     }
 
     /// Positions enregistrées après `depuis` (ms).
@@ -103,10 +142,21 @@ public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "suiviEtat", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "suiviPoints", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "suiviEffacer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "liveActivityDemarrer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "liveActivityMettreAJour", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "liveActivityArreter", returnType: CAPPluginReturnPromise),
     ]
 
     override public func load() {
-        DispatchQueue.main.async { SuiviTrajet.partage.reprendre() }
+        DispatchQueue.main.async {
+            SuiviTrajet.partage.surPosition = { [weak self] point in
+                self?.notifyListeners("position", data: ["point": point])
+            }
+            SuiviTrajet.partage.surEtat = { [weak self] etat in
+                self?.notifyListeners("suivi", data: etat)
+            }
+            SuiviTrajet.partage.reprendre()
+        }
     }
 
     /// Écrit le texte dans un fichier et ouvre la feuille de partage (« Ouvrir dans Organic Maps »).
@@ -138,19 +188,19 @@ public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func suiviDemarrer(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             SuiviTrajet.partage.demarrer()
-            call.resolve(["actif": true])
+            call.resolve(SuiviTrajet.partage.etat)
         }
     }
 
     @objc func suiviArreter(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             SuiviTrajet.partage.arreter()
-            call.resolve(["actif": false])
+            call.resolve(SuiviTrajet.partage.etat)
         }
     }
 
     @objc func suiviEtat(_ call: CAPPluginCall) {
-        call.resolve(["actif": SuiviTrajet.partage.actif])
+        DispatchQueue.main.async { call.resolve(SuiviTrajet.partage.etat) }
     }
 
     @objc func suiviPoints(_ call: CAPPluginCall) {
@@ -163,5 +213,95 @@ public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func suiviEffacer(_ call: CAPPluginCall) {
         SuiviTrajet.partage.effacer()
         call.resolve()
+    }
+
+    // MARK: - Live Activity & Dynamic Island
+
+    @objc func liveActivityDemarrer(_ call: CAPPluginCall) {
+        if #available(iOS 16.2, *) {
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+                call.reject("Live Activities non autorisées sur cet iPhone")
+                return
+            }
+            let titre = call.getString("titreVoyage") ?? "TerraTrack"
+            let jour = call.getInt("jourNumero") ?? 1
+            let prochaine = call.getString("prochaineEtape") ?? "Étape suivante"
+            let km = call.getDouble("kmRestants") ?? 0.0
+            let minutes = call.getInt("minutesRestantes") ?? 0
+            let arrivee = call.getString("heureArrivee") ?? "--:--"
+            let autonomie = call.getInt("autonomieKm")
+            let alerte = call.getString("alerte")
+
+            let attributes = TrajetActivityAttributes(titreVoyage: titre, jourNumero: jour)
+            let state = TrajetActivityAttributes.ContentState(
+                prochaineEtape: prochaine,
+                kmRestants: km,
+                minutesRestantes: minutes,
+                heureArrivee: arrivee,
+                autonomieKm: autonomie,
+                alerte: alerte
+            )
+
+            Task {
+                for existing in Activity<TrajetActivityAttributes>.activities {
+                    await existing.end(dismissalPolicy: .immediate)
+                }
+                do {
+                    let activity = try Activity.request(
+                        attributes: attributes,
+                        content: .init(state: state, staleDate: Date().addingTimeInterval(60)),
+                        pushType: nil
+                    )
+                    call.resolve(["id": activity.id, "actif": true])
+                } catch {
+                    call.reject("Erreur au lancement de la Live Activity : \(error.localizedDescription)")
+                }
+            }
+        } else {
+            call.reject("Live Activity nécessite iOS 16.2 ou plus récent")
+        }
+    }
+
+    @objc func liveActivityMettreAJour(_ call: CAPPluginCall) {
+        if #available(iOS 16.2, *) {
+            let prochaine = call.getString("prochaineEtape") ?? "Étape suivante"
+            let km = call.getDouble("kmRestants") ?? 0.0
+            let minutes = call.getInt("minutesRestantes") ?? 0
+            let arrivee = call.getString("heureArrivee") ?? "--:--"
+            let autonomie = call.getInt("autonomieKm")
+            let alerte = call.getString("alerte")
+
+            let state = TrajetActivityAttributes.ContentState(
+                prochaineEtape: prochaine,
+                kmRestants: km,
+                minutesRestantes: minutes,
+                heureArrivee: arrivee,
+                autonomieKm: autonomie,
+                alerte: alerte
+            )
+
+            Task {
+                let activites = Activity<TrajetActivityAttributes>.activities
+                for activity in activites {
+                    await activity.update(.init(state: state, staleDate: Date().addingTimeInterval(60)))
+                }
+                call.resolve(["actif": !activites.isEmpty])
+            }
+        } else {
+            call.resolve(["actif": false])
+        }
+    }
+
+    @objc func liveActivityArreter(_ call: CAPPluginCall) {
+        if #available(iOS 16.2, *) {
+            Task {
+                for activity in Activity<TrajetActivityAttributes>.activities {
+                    await activity.end(dismissalPolicy: .immediate)
+                }
+                call.resolve(["actif": false])
+            }
+        } else {
+            call.resolve(["actif": false])
+        }
     }
 }

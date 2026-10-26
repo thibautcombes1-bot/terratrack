@@ -6,6 +6,8 @@
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleDisplayName</key>
 	<string>TerraTrack</string>
 	<key>CFBundleExecutable</key>
@@ -32,6 +34,10 @@
 	<array>
 		<string>location</string>
 	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Pendant ton voyage, TerraTrack suit ton trajet même appli fermée (pendant qu'Organic Maps te guide) : étapes faites, avancée, carburant. Rien ne quitte ton iPhone.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

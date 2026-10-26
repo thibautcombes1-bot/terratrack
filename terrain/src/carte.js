@@ -237,6 +237,12 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
       });
       donnees('arrets', { type: 'FeatureCollection', features: arrets });
     },
+    visibiliteParcours(visible) {
+      const v = visible ? 'visible' : 'none';
+      for (const id of ['parcours-bord', 'parcours', 'arrets', 'arrets-noms']) {
+        if (carte.getLayer(id)) carte.setLayoutProperty(id, 'visibility', v);
+      }
+    },
     afficherSuggestions(liste, categorie) {
       donnees('suggestions', {
         type: 'FeatureCollection',
@@ -245,6 +251,9 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
     },
     afficherPosition(p) {
       donnees('position', p ? { type: 'FeatureCollection', features: [point(p, {})] } : vide);
+    },
+    suivrePosition(p) {
+      carte.easeTo({ center: [p.lon, p.lat], zoom: Math.max(12, carte.getZoom()), padding: marges(36), duration: 700 });
     },
     cadrer(coords, marge = 60) {
       if (!coords.length) return;

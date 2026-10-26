@@ -1,5 +1,6 @@
 // TerraTrack, appli de terrain : préparer, suivre le parcours, improviser en route — sans réseau.
 import { BOUTONS, suggerer } from './boutons.js';
+import { avancerSurFeuille, dateLocale, etatGps, extrairePointsPassage, lirePoint, positionRecente } from './suivi.js';
 import { COULEURS, creerCarte } from './carte.js';
 import { h, heure, duree, km, versMinutes, dateTexte, moisTexte, simplifier, memoire } from './outils.js';
 import { chargerPack, etatMiseAJour, miseAJourPossible, verifierMiseAJour } from './pack.js';
@@ -101,6 +102,7 @@ function rendreDejaVus() {
 }
 let jourActif = 0;
 let position = null;
+let centrerGps = true;
 
 // ---------- Tiroir et onglets ----------
 
@@ -125,7 +127,7 @@ for (const zone of [$('#poignee'), document.querySelector('.onglets')]) {
   });
 }
 // Toucher la carte la libère : le tiroir descend.
-carte.carte.on('dragstart', () => regler(0));
+carte.carte.on('dragstart', () => { centrerGps = false; regler(0); });
 $('#poignee').addEventListener('click', () => {
   regler(hauteur() === 0 ? 1 : 0);
 });
@@ -138,9 +140,13 @@ function ouvrirOnglet(onglet, sousVue) {
   tiroir.classList.toggle('compact', onglet === 'carte');
   // Les vues de « Parcours » s'ouvrent aussi directement par leur nom.
   if (['preparer', 'route'].includes(onglet)) [onglet, sousVue] = ['parcours', onglet];
+  if (sousVue === 'route' && !plan?.valide) sousVue = plan ? 'parcours' : 'preparer';
+  if (sousVue === 'parcours' && !plan) sousVue = 'preparer';
   if (sousVue) vue = sousVue;
   const nom = onglet === 'parcours' ? vue : onglet === 'carte' ? 'carte-vue' : onglet;
   ongletCourant = onglet;
+  tiroir.dataset.vue = nom;
+  majEtapesExperience();
   for (const b of document.querySelectorAll('[data-onglet]')) b.setAttribute('aria-selected', String(b.dataset.onglet === onglet));
   for (const b of document.querySelectorAll('[data-vue]')) b.setAttribute('aria-selected', String(b.dataset.vue === vue));
   $('#sous-onglets').hidden = onglet !== 'parcours';
@@ -152,14 +158,27 @@ function ouvrirOnglet(onglet, sousVue) {
     carte.afficherSuggestions(dernieresSuggestions, dernierBouton ?? 'decouvrir');
   } else if (nom !== 'plus-tard') carte.afficherSuggestions([], 'decouvrir');
   if (nom === 'parcours') {
+    carte.visibiliteParcours(true);
     carte.afficherParcours(plan, -1);
     majInfoPlusTard();
   }
   if (nom === 'preparer') majInfoPlusTard();
   if (nom === 'historique') rendreHistorique();
   if (nom === 'plus-tard') rendrePlusTard();
-  if (nom === 'carte-vue') rendreCouches();
-  else carte.afficherDecouverte([]);
+  if (nom === 'carte-vue') {
+    carte.visibiliteParcours(couchesCochees.has('parcours'));
+    rendreCouches();
+  } else {
+    carte.visibiliteParcours(true);
+    carte.afficherDecouverte([]);
+  }
+}
+function majEtapesExperience() {
+  for (const b of document.querySelectorAll('[data-vue]')) {
+    const bloque = b.dataset.vue === 'route' ? !plan?.valide : b.dataset.vue === 'parcours' ? !plan : false;
+    b.disabled = bloque;
+    b.setAttribute('aria-disabled', String(bloque));
+  }
 }
 const PANNEAUX = ['preparer', 'parcours', 'route', 'carte-vue', 'historique', 'plus-tard'];
 const ongletOuvert = () => PANNEAUX.find((id) => !$(`#${id}`).hidden);
@@ -238,11 +257,17 @@ function majReglages() {
   ecrireVehicule(v);
   memoire.ecrire('guidage', choix('guidage')[0] ?? 'organic');
   if (plan) rendreParcours();
+  majResumeVehicule();
   majPortee();
 }
 form.addEventListener('input', (ev) => {
   if (CHAMPS_VEHICULE.includes(ev.target.name)) majReglages();
 });
+function majResumeVehicule() {
+  const v = lireVehicule();
+  $('#resume-vehicule').textContent = `${VEHICULES[v.type]?.nom.replace(/^[^\p{L}]+/u, '') ?? 'Véhicule'} · ${v.litresDepart} L${v.budget ? ` · budget ${euros(v.budget)}` : ''}`;
+}
+majResumeVehicule();
 /** Le véhicule pour les calculs : sans prix saisi, le prix médian du carburant dans le pack. */
 function vehiculeCalcul() {
   const v = lireVehicule();
@@ -379,7 +404,7 @@ form.addEventListener('submit', async (ev) => {
     if (portee && (await chargerMeteo(grilleAutour(p.depart, portee)).catch(() => false) || coefficientBeauTemps(p.depart.lat, p.depart.lon, dates) != null))
       p.beauTemps = (l) => coefficientBeauTemps(l.lat, l.lon, dates);
     else if (portee) afficherToast('☀️ Beau temps : pas de prévisions sans réseau, je fais comme d’habitude.');
-    bouton.textContent = 'Proposer un parcours';
+    bouton.textContent = 'Découvrir mon parcours';
   }
   const calculer = (extra = {}) => {
     if (mode !== 'plein') return planifier(pack, { ...p, ...extra });
@@ -407,7 +432,7 @@ form.addEventListener('submit', async (ev) => {
     }
   }
   bouton.disabled = false;
-  bouton.textContent = 'Proposer un parcours';
+  bouton.textContent = 'Découvrir mon parcours';
   carte.afficherPortee(null);
   jourActif = 0;
   enregistrer();
@@ -424,6 +449,7 @@ function montrerErreur(zone, texte) {
 function enregistrer() {
   memoire.ecrire('plan', plan);
   rendreParcours();
+  majEtapesExperience();
   carte.afficherParcours(plan, -1);
 }
 
@@ -623,8 +649,16 @@ document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-itineraire]');
   const choix = b && ITINERAIRES.find((i) => i.cle === b.dataset.itineraire);
   if (!choix || !plan) return;
+  // Le changement de route ne doit pas recocher les arrêts que l'on vient d'écarter.
+  const cleChoix = (c) => [c.dataset.cr, c.dataset.j ?? '', c.dataset.id ?? '', c.dataset.i ?? '', c.name].join('|');
+  const selection = plan.valide === false ? new Map([...$('#parcours').querySelectorAll('[data-cr]')].map((c) => [cleChoix(c), c.checked])) : null;
+  const joursOuverts = [...$('#parcours').querySelectorAll('.jour-choix')].map((j) => j.open);
   choisirItineraire(pack, plan, choix.options);
   enregistrer();
+  if (selection) {
+    for (const c of $('#parcours').querySelectorAll('[data-cr]')) if (selection.has(cleChoix(c))) c.checked = selection.get(cleChoix(c));
+    [...$('#parcours').querySelectorAll('.jour-choix')].forEach((j, i) => { if (i < joursOuverts.length) j.open = joursOuverts[i]; });
+  }
   afficherToast(`🛣️ ${choix.nom} : le parcours est recalculé.`);
 });
 
@@ -644,8 +678,7 @@ function rendreCompteRendu(zone) {
       `${icone} <b>${h(l.nom || l.type)}</b> <small>${h(l.nom ? l.type : '')} · au km ${l.kmDepuisDepart}${l.ecartKm >= 0.3 ? `, à ${l.ecartKm} km de la route` : ''}${l.horaires ? ` · ${h(l.horaires)}` : ''}</small>`,
     );
   zone.innerHTML = `
-    <h3 class="titre-cr">Compte rendu avant le départ</h3>
-    <p class="info">Relis tout : décoche ce que tu ne veux pas, coche ce qui t’intéresse en plus, choisis tes nuits, puis valide.</p>
+    <div class="entete-ecran"><span class="surtitre">UNE ESCAPADE À VOTRE IMAGE</span><h1>Votre voyage.</h1><p>Voici votre proposition. Gardez les arrêts qui vous plaisent, choisissez vos nuits, puis prenez la route.</p></div>
     <div class="totaux">
       <div><b>${km(t.metres)}</b>distance</div>
       <div><b>${duree(t.conduiteMin)}</b>de route</div>
@@ -665,13 +698,13 @@ function rendreCompteRendu(zone) {
     ${plan.jours
       .map((j, i) => {
         const c = compteRendu[i];
-        const nuits = j.fin.genre === 'nuit' ? [j.fin, ...c.nuits] : [];
+        const nuits = j.fin.genre === 'nuit' ? [...(j.fin.aTrouver ? [] : [j.fin]), ...c.nuits] : [];
         return `
-      <article class="jour">
-        <div class="jour-tete">
+      <details class="jour jour-choix" ${i === 0 ? 'open' : ''}>
+        <summary class="jour-tete">
           <strong>Jour ${i + 1} · ${dateTexte(j.date)}</strong>
           <small>${h(j.debut.nom)} → ${h(j.fin.nom)} · ${km(j.metres)} · ${duree(j.conduiteMin)} de route${j.peage ? ' · péage' : ''} · arrivée ${heure(j.fin.arriveeMin)} (coucher ${heure(j.coucherMin)})</small>
-        </div>
+        </summary>
         <div class="bloc-cr">
           <div class="titre">Étapes proposées</div>
           ${j.etapes.length ? j.etapes.map((e) => caseACocher(`data-cr="etape" data-id="${h(e.id)}"`, true, `<b>${heure(e.arriveeMin)} · ${h(e.nom)}</b><small class="pourquoi">${h(e.pourquoi ?? '')}</small><small>${h(e.type)} · visite ${duree(e.visiteMin)}${e.detourMin >= 1 ? ` · détour +${duree(e.detourMin)}` : ''}</small>${meteoEtape(e, j.date, e.arriveeMin)}`)).join('') : '<p class="info">Aucune étape ce jour-là.</p>'}
@@ -691,7 +724,7 @@ function rendreCompteRendu(zone) {
           ${c.baignade.map((l) => ligneExtra(l, i, '🏊')).join('')}
         </div>
         ${j.alertes.map((a) => `<p class="alerte">⚠️ ${h(a)}</p>`).join('')}
-      </article>`;
+      </details>`;
       })
       .join('')}
     ${
@@ -701,8 +734,7 @@ function rendreCompteRendu(zone) {
             .join('')}</div></article>`
         : ''
     }
-    <button type="button" class="principal" data-action="valider">✓ Valider le parcours</button>
-    <button type="button" class="secondaire large" data-action="modifier-choix">✎ Modifier mes choix</button>`;
+    <div class="suite-experience"><button type="button" class="principal" data-action="valider">Valider et passer en route <span aria-hidden="true">→</span></button><button type="button" class="lien" data-action="modifier-choix">Modifier mes envies</button></div>`;
 }
 
 /** Applique les choix du compte rendu, recalcule, et marque le parcours comme validé. */
@@ -728,8 +760,9 @@ function validerCompteRendu() {
   plan.valide = true;
   plan.valideLe = Date.now();
   enregistrer();
+  ouvrirOnglet('parcours', 'route');
   suiviAutomatique();
-  afficherToast('Parcours validé. Bonne route !');
+  afficherToast('Votre voyage est prêt. Bonne route !');
   document.querySelector('.contenu').scrollTop = 0;
 }
 
@@ -761,7 +794,7 @@ function rendreJour(j, i) {
     )
     .join('');
   const fin = j.fin;
-  const soir = fin.genre === 'nuit' ? '🌙 Nuit' : fin.genre === 'retour' ? '🏠 Retour' : '🏁 Arrivée';
+  const soir = fin.genre === 'nuit' ? (fin.aTrouver ? '🌙 Nuit à trouver' : '🌙 Nuit') : fin.genre === 'retour' ? '🏠 Retour' : '🏁 Arrivée';
   const marge =
     j.margeMin >= 0
       ? `<span class="marge-ok">${duree(j.margeMin)} avant la nuit (coucher ${heure(j.coucherMin)})</span>`
@@ -797,15 +830,18 @@ function rendreJour(j, i) {
  */
 const NOMS_GUIDAGE = { organic: 'Organic Maps', waze: 'Waze', plans: 'Plans' };
 const guidagePrefere = () => memoire.lire('guidage', 'organic');
-function guider(appli, { lat, lon, nom }) {
-  const n = encodeURIComponent(nom || 'Étape');
+async function guider(appli, cible) {
+  if (natif && !etatSuivi.demande && plan?.valide && !plan.suiviArrete) await activerSuivi();
+  // Le bouton principal mène à l'étape choisie ; les passages intermédiaires restent dans le KML.
+  const point = cible;
+  const n = encodeURIComponent(point.nom || 'Étape');
   if (appli === 'organic') {
     location.href = position
-      ? `om://route?sll=${position.lat},${position.lon}&saddr=${encodeURIComponent('Ma position')}&dll=${lat},${lon}&daddr=${n}&type=vehicle`
-      : `om://map?ll=${lat},${lon}&n=${n}`;
+      ? `om://route?sll=${position.lat},${position.lon}&saddr=${encodeURIComponent('Ma position')}&dll=${point.lat},${point.lon}&daddr=${n}&type=vehicle`
+      : `om://map?ll=${point.lat},${point.lon}&n=${n}`;
     return;
   }
-  window.open(appli === 'waze' ? `https://waze.com/ul?ll=${lat},${lon}&navigate=yes` : `https://maps.apple.com/?daddr=${lat},${lon}&q=${n}&dirflg=d`, '_blank');
+  window.open(appli === 'waze' ? `https://waze.com/ul?ll=${point.lat},${point.lon}&navigate=yes` : `https://maps.apple.com/?daddr=${point.lat},${point.lon}&q=${n}&dirflg=d`, '_blank');
 }
 const boutonGuidage = (l) => `<button type="button" data-guide="${l.lat},${l.lon}" data-nom="${h(l.nom ?? '')}">🧭 ${NOMS_GUIDAGE[guidagePrefere()]}</button>`;
 document.addEventListener('click', (ev) => {
@@ -841,6 +877,7 @@ $('#parcours').addEventListener('click', (ev) => {
     case 'revoir':
       plan.valide = false;
       memoire.ecrire('plan', plan);
+      majEtapesExperience();
       return rendreParcours();
     case 'voir-jour':
       jourActif = j;
@@ -902,169 +939,205 @@ function brancherNouvelleDestination() {
   });
 }
 
-// ---------- En route ----------
+// ---------- En route : la position et l'heure viennent du téléphone ----------
 
 const avance = $('#avance');
 const maintenant = $('#maintenant');
-
-function preparerRoute() {
-  const zone = $('#choix-jour');
-  if (!plan) {
-    zone.innerHTML = '<p class="info">Prépare d’abord un parcours.</p>';
-    return;
-  }
-  if (plan.valide === false) {
-    zone.innerHTML = '<p class="info">Valide d’abord ton parcours dans l’onglet « Parcours » (compte rendu avant le départ).</p>';
-    return;
-  }
-  jourActif = Math.min(jourActif, plan.jours.length - 1);
-  zone.innerHTML = plan.jours
-    .map((_, i) => `<button type="button" class="puce" data-j="${i}" aria-pressed="${i === jourActif}">Jour ${i + 1}</button>`)
-    .join('');
-  placerSurLeTrajet();
-}
-$('#choix-jour').addEventListener('click', (ev) => {
-  const b = ev.target.closest('[data-j]');
-  if (!b) return;
-  jourActif = Number(b.dataset.j);
-  avance.value = 0;
-  preparerRoute();
-});
-
-/** Position simulée : un point du tracé du jour, et l'heure prévue à cet endroit. */
-function placerSurLeTrajet() {
-  if (!plan) return;
-  const j = plan.jours[jourActif];
-  const fraction = Number(avance.value) / 100;
-  const [lon, lat] = j.coords[Math.min(j.coords.length - 1, Math.round(fraction * (j.coords.length - 1)))];
-  position = { lat, lon, nom: 'Ma position' };
-  maintenant.value = versHeure(j.heureDepart + fraction * (j.fin.arriveeMin - j.heureDepart));
-  $('#avance-texte').textContent = `${Math.round(fraction * 100)} %`;
-  carte.afficherParcours(plan, jourActif);
-  carte.afficherPosition(position);
-  rendreAvancee();
-  rendreCarburantRoute();
-}
 const versHeure = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m % 60)).padStart(2, '0')}`;
-avance.addEventListener('input', placerSurLeTrajet);
-
-// ---------- Position réelle et suivi du trajet ----------
-// Sur iPhone, le suivi continue en arrière-plan pendant qu'Organic Maps (ou Waze) guide :
-// les positions s'enregistrent (TerrainPlugin.swift) et l'appli les relit en revenant.
-// Elles valident les passages (étapes faites, notes) et dessinent le trajet déjà fait.
-
 const TerrainNatif = registerPlugin('Terrain');
 const natif = window.Capacitor?.isNativePlatform?.() ?? false;
 let trace = memoire.lire('trace', []);
 let suiviDepuis = memoire.lire('suiviDepuis', 0);
 let releve = null;
+let suivi = null;
+let etatSuivi = { actif: false, demande: false };
+let lectureEnCours = false;
+let dernierPointTrace = 0;
 carte.pret.then(() => carte.afficherTrace(trace));
 
-/** Des positions [date ms, lat, lon, précision m] : passages vérifiés, trace, position actuelle. */
+function heureDuTelephone() {
+  const d = new Date();
+  maintenant.value = versHeure(d.getHours() * 60 + d.getMinutes());
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function rendreEtatGps() {
+  const signal = etatGps(etatSuivi, position);
+  $('#etat-gps').dataset.signal = signal.genre;
+  $('#etat-gps').innerHTML = `<span class="point-signal" aria-hidden="true"></span><div><strong>${h(signal.titre)}</strong><small>${h(signal.detail)}</small></div>`;
+  $('#gps').textContent = etatSuivi.demande ? 'Mettre le suivi en pause' : 'Activer le suivi GPS';
+  $('#recentrer').disabled = !position;
+  const disponible = Boolean(plan?.valide && etatSuivi.actif && positionRecente(position));
+  for (const bouton of document.querySelectorAll('[data-bouton], #form-demande button, #demande')) bouton.disabled = !disponible;
+  $('#info-guidage').textContent = `Guidage avec ${NOMS_GUIDAGE[guidagePrefere()]}. TerraTrack suit le GPS du téléphone pendant votre navigation et retrouve votre avancée au retour.`;
+}
+
+function preparerRoute() {
+  const zone = $('#choix-jour');
+  if (!plan?.valide) {
+    zone.innerHTML = '<p class="info">Choisissez votre parcours et validez vos arrêts pour commencer.</p>';
+    $('#avancee').innerHTML = '';
+    return;
+  }
+  jourActif = Math.min(jourActif, plan.jours.length - 1);
+  zone.innerHTML = plan.jours.map((_, i) => `<button type="button" class="puce" data-j="${i}" aria-pressed="${i === jourActif}">Jour ${i + 1}</button>`).join('');
+  $('#resume-route').textContent = `${dateTexte(plan.jours[jourActif].date)} · ${plan.jours[jourActif].debut.nom}`;
+  heureDuTelephone();
+  carte.afficherParcours(plan, jourActif);
+  rendreEtatGps();
+  rendreAvancee();
+  rendreCarburantRoute();
+  if (position && centrerGps) carte.suivrePosition(position);
+}
+$('#choix-jour').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-j]');
+  if (!b) return;
+  jourActif = Number(b.dataset.j);
+  preparerRoute();
+});
+$('#recentrer').addEventListener('click', () => {
+  centrerGps = true;
+  if (position) carte.suivrePosition(position);
+});
+
+/** Le journal complète les événements directs, notamment au retour de l'application GPS. */
 function traiterPoints(points) {
-  if (!points.length) return;
-  const lats = points.map((p) => p[1]);
-  const lons = points.map((p) => p[2]);
+  const valides = points.map(lirePoint).filter(Boolean).filter((p) => p.quand <= Date.now() + 10000).sort((a, b) => a.quand - b.quand);
+  if (!valides.length) return;
+  const lats = valides.map((p) => p.lat), lons = valides.map((p) => p.lon);
   const [s, n, o, e] = [Math.min(...lats) - 0.005, Math.max(...lats) + 0.005, Math.min(...lons) - 0.007, Math.max(...lons) + 0.007];
-  // Les lieux de la zone, une fois pour toutes les positions.
   const candidats = pack.lieux.filter((l) => l.nom && l.lat >= s && l.lat <= n && l.lon >= o && l.lon <= e);
   const passes = [];
-  for (const [, lat, lon, precision] of points) {
-    const proches = candidats.filter((l) => Math.abs(l.lat - lat) < 0.004 && Math.abs(l.lon - lon) < 0.006);
-    passes.push(...verifierPassages({ lat, lon }, precision, proches));
-    const dernier = trace.at(-1);
-    if (!dernier || distanceKm({ lon: dernier[0], lat: dernier[1] }, { lat, lon }) > 0.1) trace.push([Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]);
+  for (const p of valides) {
+    const proches = candidats.filter((l) => Math.abs(l.lat - p.lat) < 0.004 && Math.abs(l.lon - p.lon) < 0.006);
+    if (positionRecente(p)) passes.push(...verifierPassages(p, p.precision, proches));
+    // Le journal peut contenir des points déjà reçus en direct : ne pas dessiner de retour en arrière.
+    if (p.quand > dernierPointTrace) {
+      const dernier = trace.at(-1);
+      if (!dernier || distanceKm({ lon: dernier[0], lat: dernier[1] }, p) > 0.03)
+        trace.push([Math.round(p.lon * 1e5) / 1e5, Math.round(p.lat * 1e5) / 1e5]);
+      dernierPointTrace = p.quand;
+    }
   }
   memoire.ecrire('trace', trace);
   carte.afficherTrace(trace);
-  const [quand, lat, lon] = points.at(-1);
-  position = { lat, lon, nom: 'Ma position' };
-  const d = new Date(quand);
-  maintenant.value = versHeure(d.getHours() * 60 + d.getMinutes());
+  const dernier = valides.at(-1);
+  if (!position || dernier.quand >= position.quand) position = dernier;
+  heureDuTelephone();
   carte.afficherPosition(position);
+  if (vue === 'route' && ongletCourant === 'parcours' && centrerGps && positionRecente(position)) carte.suivrePosition(position);
   const etapes = new Set(plan?.jours.flatMap((x) => x.etapes.map((e) => e.id)) ?? []);
-  for (const l of passes) afficherToast(etapes.has(l.id) ? `✓ Étape faite : ${l.nom}. Tu peux la noter.` : `📍 Passage vérifié : ${l.nom}. Tu peux le noter.`);
-  surveillerItineraire(quand);
+  for (const l of passes.filter((l) => etapes.has(l.id))) afficherToast(`Étape atteinte : ${l.nom}`);
+  if (positionRecente(position)) surveillerItineraire(position.quand);
+  rendreEtatGps();
   rendreAvancee();
   rendreCarburantRoute();
 }
 
 async function releverSuivi() {
-  if (document.visibilityState !== 'visible') return;
-  const { points } = await TerrainNatif.suiviPoints({ depuis: suiviDepuis }).catch(() => ({ points: [] }));
-  if (!points.length) return;
-  suiviDepuis = points.at(-1)[0];
-  memoire.ecrire('suiviDepuis', suiviDepuis);
-  traiterPoints(points);
+  if (document.visibilityState !== 'visible' || lectureEnCours) return;
+  lectureEnCours = true;
+  try {
+    const { points = [] } = await TerrainNatif.suiviPoints({ depuis: suiviDepuis });
+    if (!points.length) return;
+    suiviDepuis = points.at(-1)[0];
+    memoire.ecrire('suiviDepuis', suiviDepuis);
+    traiterPoints(points);
+  } catch { /* Le statut distingue déjà un GPS indisponible d'une position en direct. */ }
+  finally { lectureEnCours = false; }
 }
-function majBoutonSuivi(actif) {
-  $('#gps').textContent = actif ? '📍 Trajet suivi, même dans Organic Maps · arrêter' : natif ? '📍 Suivre mon trajet' : '📍 Ma position';
+
+function majBoutonSuivi(etat) {
+  etatSuivi = typeof etat === 'boolean' ? { actif: etat, demande: etat } : etat;
   clearInterval(releve);
-  if (actif) {
+  releve = null;
+  if (natif && etatSuivi.demande) {
     releve = setInterval(releverSuivi, 5000);
     releverSuivi();
   }
+  rendreEtatGps();
 }
-/** Un parcours validé dont un jour est aujourd'hui : on voyage. */
+
 const enVoyage = () => {
-  const aujourdhui = new Date().toISOString().slice(0, 10);
-  return Boolean(plan?.valide && plan.jours[0].date <= aujourdhui && plan.jours.at(-1).date >= aujourdhui);
+  const aujourdHui = dateLocale();
+  return Boolean(plan?.valide && plan.jours[0].date <= aujourdHui && plan.jours.at(-1).date >= aujourdHui);
 };
-/** Pendant le voyage, le suivi démarre tout seul (sauf si on l'a arrêté pour ce parcours). */
+
+async function activerSuivi() {
+  if (plan) { plan.suiviArrete = false; memoire.ecrire('plan', plan); }
+  if (natif) {
+    try {
+      majBoutonSuivi(await TerrainNatif.suiviDemarrer());
+      if (plan?.valide) {
+        const j = plan.jours[jourActif ?? 0];
+        const prem = j?.etapes?.[0] ?? j?.fin;
+        TerrainNatif.liveActivityDemarrer({
+          titreVoyage: plan.depart?.nom ? `Trip · ${plan.depart.nom}` : 'TerraTrack',
+          jourNumero: (jourActif ?? 0) + 1,
+          prochaineEtape: prem?.nom ?? 'Étape suivante',
+          kmRestants: 0,
+          minutesRestantes: 0,
+          heureArrivee: '--:--',
+        }).catch(() => {});
+      }
+    } catch {
+      majBoutonSuivi({ demande: false, actif: false, erreur: 'Le GPS n’a pas pu démarrer.' });
+    }
+    return;
+  }
+  if (!navigator.geolocation) return majBoutonSuivi({ demande: false, actif: false, autorisation: 'desactivee' });
+  if (suivi != null) navigator.geolocation.clearWatch(suivi);
+  majBoutonSuivi({ demande: true, actif: false });
+  suivi = navigator.geolocation.watchPosition(
+    ({ coords, timestamp }) => {
+      etatSuivi = { demande: true, actif: true };
+      traiterPoints([[timestamp, coords.latitude, coords.longitude, coords.accuracy]]);
+    },
+    (erreur) => majBoutonSuivi({ demande: true, actif: false, ...(erreur.code === 1 ? { autorisation: 'refusee' } : { erreur: 'Signal GPS indisponible pour le moment.' }) }),
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 },
+  );
+}
+
 async function suiviAutomatique() {
   if (enVoyage()) {
-    const aujourdhui = new Date().toISOString().slice(0, 10);
-    const index = plan.jours.findIndex((j) => j.date === aujourdhui);
+    const index = plan.jours.findIndex((j) => j.date === dateLocale());
     if (index >= 0) jourActif = index;
   }
-  if (!natif) return;
-  const { actif } = await TerrainNatif.suiviEtat().catch(() => ({ actif: false }));
-  if (!actif && enVoyage() && !plan.suiviArrete) {
-    await TerrainNatif.suiviDemarrer().catch(() => {});
-    afficherToast('📍 Suivi du trajet lancé : il continue même appli fermée, pendant qu’Organic Maps te guide.');
-    return majBoutonSuivi(true);
-  }
-  majBoutonSuivi(actif);
+  if (!natif) { rendreEtatGps(); return; }
+  const etat = await TerrainNatif.suiviEtat().catch(() => ({ demande: false, actif: false }));
+  if (!etat.demande && enVoyage() && !plan.suiviArrete) return activerSuivi();
+  majBoutonSuivi(etat);
+}
+
+if (natif) {
+  TerrainNatif.addListener('position', ({ point }) => {
+    if (etatSuivi.demande) traiterPoints([point]);
+  });
+  TerrainNatif.addListener('suivi', (etat) => majBoutonSuivi(etat));
 }
 suiviAutomatique();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  if (natif && releve) releverSuivi();
-  // Le matin d'un nouveau jour de voyage, le suivi repart tout seul.
+  heureDuTelephone();
+  if (natif) releverSuivi();
   suiviAutomatique();
+  rendreAvancee();
 });
+setInterval(() => {
+  if (document.visibilityState !== 'visible' || ongletOuvert() !== 'route') return;
+  heureDuTelephone(); rendreEtatGps(); rendreAvancee();
+}, 15000);
 
-let suivi = null;
 $('#gps').addEventListener('click', async () => {
+  if (!etatSuivi.demande) return activerSuivi();
   if (natif) {
-    const { actif } = await TerrainNatif.suiviEtat();
-    if (actif) {
-      if (!confirm('Arrêter le suivi du trajet ? Il ne redémarrera pas tout seul pour ce parcours.')) return;
-      await TerrainNatif.suiviArreter();
-      if (plan) {
-        plan.suiviArrete = true;
-        memoire.ecrire('plan', plan);
-      }
-      return majBoutonSuivi(false);
-    }
-    if (plan) plan.suiviArrete = false;
-    await TerrainNatif.suiviDemarrer();
-    afficherToast('Suivi lancé : tu peux passer sur Organic Maps, TerraTrack note ton avancée.');
-    return majBoutonSuivi(true);
+    await TerrainNatif.suiviArreter();
+    TerrainNatif.liveActivityArreter().catch(() => {});
   }
-  if (!navigator.geolocation) return alert('Position indisponible sur cet appareil.');
-  if (suivi != null) navigator.geolocation.clearWatch(suivi);
-  let premiere = true;
-  suivi = navigator.geolocation.watchPosition(
-    ({ coords, timestamp }) => {
-      traiterPoints([[timestamp, coords.latitude, coords.longitude, coords.accuracy]]);
-      if (premiere) carte.voler(position, 12);
-      premiere = false;
-    },
-    () => alert('Position refusée ou indisponible.'),
-    { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 },
-  );
-  $('#gps').textContent = '📍 Position GPS suivie';
+  else if (suivi != null) { navigator.geolocation.clearWatch(suivi); suivi = null; }
+  if (plan) { plan.suiviArrete = true; memoire.ecrire('plan', plan); }
+  majBoutonSuivi({ demande: false, actif: false });
+  rendreAvancee();
 });
 
 // ---------- Imprévu : on a quitté le parcours prévu, ou on est en retard ----------
@@ -1118,36 +1191,47 @@ document.addEventListener('click', (ev) => {
 /** Où j'en suis : km faits, étapes faites, prochaine étape, arrivée estimée et écart au programme. */
 function rendreAvancee() {
   const zone = $('#avancee');
-  if (!plan || plan.valide === false || !position) return (zone.innerHTML = '');
+  if (!plan?.valide) return (zone.innerHTML = '');
   const j = plan.jours[jourActif];
-  const route = routeDe(j.coords);
-  const faitKm = Math.min(situer(route, position).s, route.longueur);
-  const passees = etapesFaites();
-  const avecKm = j.etapes.map((e) => ({ e, s: situer(route, e).s }));
-  const faites = avecKm.filter(({ e, s }) => passees.has(e.id) || s < faitKm - 1);
-  const restantes = avecKm.filter((x) => !faites.includes(x)).map((x) => x.e);
-  const trajet = itineraireMulti(pack.graphe, [position, ...restantes, j.fin], { eviterPeages: Boolean(j.eviterPeages) });
-  const minute = versMinutes(maintenant.value);
-  const arrivee = minute + (trajet ? trajet.secondes / 60 : 0) + restantes.reduce((t, e) => t + (e.visiteMin ?? 0), 0);
-  const ecart = Math.round(arrivee - j.fin.arriveeMin);
-  const prochaine = restantes[0] ?? j.fin;
+  prochaineEtape = j.etapes.find((e) => !etapesFaites().has(e.id)) ?? j.fin;
+  if (!positionRecente(position) || !etatSuivi.actif) {
+    zone.innerHTML = `<div class="carte-direct attente-gps"><span class="surtitre">PROCHAINE ÉTAPE</span><h2>${h(prochaineEtape.nom)}</h2><p>Votre position GPS mettra à jour la distance, l’avancée et l’heure d’arrivée.</p><button type="button" class="principal" data-prochaine>Ouvrir ${NOMS_GUIDAGE[guidagePrefere()]} <span aria-hidden="true">↗</span></button></div>`;
+    return;
+  }
+  const avancement = avancerSurFeuille(j, position, etapesFaites());
+  const { faitKm, totalKm, restantes, prochaine, pourcent, ecartKm, faites } = avancement;
   prochaineEtape = prochaine;
+  avance.value = pourcent;
+  $('#avance-texte').textContent = `${pourcent} %`;
+  const trajet = itineraireMulti(pack.graphe, [position, ...restantes, j.fin], { eviterPeages: Boolean(j.eviterPeages), economie: Boolean(j.economie) });
+  const minute = heureDuTelephone();
+  const arrivee = trajet ? minute + trajet.secondes / 60 + restantes.reduce((t, e) => t + (e.visiteMin ?? 0), 0) : null;
+  const ecart = arrivee == null ? null : Math.round(arrivee - j.fin.arriveeMin);
   const versProchaine = trajet?.troncons[0];
+  const retard = ecart == null ? 'Trajet indisponible' : ecart > 5 ? `${duree(ecart)} de retard` : ecart < -5 ? `${duree(-ecart)} d’avance` : 'Dans les temps';
   zone.innerHTML = `
-    <div class="encadre">
-      <div class="nom">🚗 Jour ${jourActif + 1} : ${Math.round(faitKm)} / ${Math.round(route.longueur)} km · ✓ ${faites.length}/${j.etapes.length} étape(s)</div>
-      <div class="jauge"><span style="width:${Math.round((faitKm / (route.longueur || 1)) * 100)}%"></span></div>
-      <small>Prochaine : ${h(prochaine.nom)}${versProchaine ? ` dans ${km(versProchaine.metres)} (${duree(versProchaine.secondes / 60)})` : ''}</small>
-      <button type="button" class="principal" data-prochaine>🧭 ${NOMS_GUIDAGE[guidagePrefere()]} → ${h(prochaine.nom)}</button>
-      <small>Arrivée estimée à ${h(j.fin.nom)} : ${heure(arrivee)} ${
-        ecart > 5 ? `<span class="retard">(+${duree(ecart)} sur le programme)</span>` : ecart < -5 ? `<span class="marge-ok">(${duree(-ecart)} d’avance)</span>` : '(à l’heure)'
-      } · coucher ${heure(j.coucherMin)}</small>
-      ${
-        arrivee > j.coucherMin
-          ? `<p class="alerte">⚠️ Arrivée après la nuit. <button type="button" class="lien" data-imprevu>Alléger la journée</button> : je garde l’essentiel et je mets le reste de côté pour demain.</p>`
-          : '<div class="actions"><button type="button" data-imprevu>🔀 Imprévu : recalculer depuis ici</button></div>'
-      }
+    <div class="carte-direct">
+      <div class="ligne-direct"><span class="surtitre">PROCHAINE ÉTAPE</span><span class="badge-direct">En direct</span></div>
+      <h2>${h(prochaine.nom)}</h2>
+      <div class="prochaine-distance">${versProchaine ? `${km(versProchaine.metres)} <span>· ${duree(versProchaine.secondes / 60)}</span>` : 'Calcul du trajet indisponible'}</div>
+      <button type="button" class="principal" data-prochaine>Continuer avec ${NOMS_GUIDAGE[guidagePrefere()]} <span aria-hidden="true">↗</span></button>
+      <div class="progression-voyage"><div><strong>${Math.round(faitKm)} <span>/ ${Math.round(totalKm)} km</span></strong><span>${pourcent} %</span></div><div class="jauge" role="progressbar" aria-label="Avancée du jour" aria-valuenow="${pourcent}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pourcent}%"></span></div></div>
+      <div class="mesures-direct"><div><small>Arrivée du jour</small><strong>${arrivee == null ? '—' : heure(arrivee)}</strong></div><div><small>Feuille de route</small><strong class="${ecart > 5 ? 'retard' : ''}">${h(retard)}</strong></div><div><small>Étapes atteintes</small><strong>${faites.length} / ${j.etapes.length}</strong></div></div>
+      ${ecartKm > 0.5 ? `<p class="alerte">Vous êtes à ${ecartKm.toFixed(1).replace('.', ',')} km du parcours prévu.</p>` : ''}
+      ${arrivee != null && arrivee > j.coucherMin ? '<p class="alerte">L’arrivée estimée est après la tombée de la nuit.</p>' : ''}
+      <button type="button" class="lien bouton-imprevu" data-imprevu>Adapter la suite depuis ma position</button>
     </div>`;
+  if (natif && TerrainNatif?.liveActivityMettreAJour && prochaine) {
+    const kmVers = versProchaine ? Math.round(versProchaine.metres / 100) / 10 : 0;
+    const minVers = versProchaine ? Math.round(versProchaine.secondes / 60) : 0;
+    TerrainNatif.liveActivityMettreAJour({
+      prochaineEtape: prochaine.nom,
+      kmRestants: kmVers,
+      minutesRestantes: minVers,
+      heureArrivee: arrivee == null ? '--:--' : heure(arrivee),
+      alerte: ecartKm > 1 ? `Écart ${ecartKm.toFixed(1).replace('.', ',')} km` : null,
+    }).catch(() => {});
+  }
 }
 
 // ---------- Carburant en route : niveau, stations, « j'ai fait le plein » ----------
@@ -1155,7 +1239,7 @@ function rendreAvancee() {
 let kmPosition = 0;
 function rendreCarburantRoute() {
   const zone = $('#carburant-route');
-  if (!plan || plan.valide === false || !position || !plan.jours[jourActif].profil) return (zone.innerHTML = '');
+  if (!plan || plan.valide === false || !positionRecente(position) || !etatSuivi.actif || !plan.jours[jourActif].profil) return (zone.innerHTML = '');
   const v = vehiculeCalcul();
   const j = plan.jours[jourActif];
   kmPosition = Math.round(situer(routeDe(j.coords), position).s);
@@ -1201,16 +1285,26 @@ async function envoyerJournee(j) {
   const ligne = jour.coords.filter((_, i) => i % pas === 0 || i === jour.coords.length - 1).map(([lon, lat]) => `${lon},${lat}`).join(' ');
   const point = (nom, description, l) =>
     `<Placemark><name>${xml(nom)}</name><description>${xml(description)}</description><Point><coordinates>${l.lon},${l.lat}</coordinates></Point></Placemark>`;
+  const waypoints = extrairePointsPassage(jour, 20);
+  const elements = [point(`Départ : ${jour.debut.nom}`, `Départ ${heure(jour.heureDepart)}`, jour.debut)];
+  for (let k = 0; k < jour.etapes.length; k++) {
+    const passages = waypoints.filter((w) => w.apresEtapeIndex === k);
+    for (const p of passages) elements.push(point(p.nom, p.pourquoi, p));
+    const e = jour.etapes[k];
+    elements.push(point(`${k + 1}. ${e.nom}`, `${heure(e.arriveeMin)} · ${e.type ?? ''} · ${e.pourquoi ?? ''}`, e));
+  }
+  const passagesFin = waypoints.filter((w) => w.apresEtapeIndex === jour.etapes.length);
+  for (const p of passagesFin) elements.push(point(p.nom, p.pourquoi, p));
+  elements.push(point(`${jour.fin.genre === 'nuit' ? 'Nuit' : 'Arrivée'} : ${jour.fin.nom}`, `Arrivée ${heure(jour.fin.arriveeMin)}`, jour.fin));
+
   const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xml(`TerraTrack · Jour ${j + 1} · ${dateTexte(jour.date)}`)}</name>
-${point(`Départ : ${jour.debut.nom}`, `Départ ${heure(jour.heureDepart)}`, jour.debut)}
-${jour.etapes.map((e, k) => point(`${k + 1}. ${e.nom}`, `${heure(e.arriveeMin)} · ${e.type ?? ''} · ${e.pourquoi ?? ''}`, e)).join('\n')}
-${point(`${jour.fin.genre === 'nuit' ? 'Nuit' : 'Arrivée'} : ${jour.fin.nom}`, `Arrivée ${heure(jour.fin.arriveeMin)}`, jour.fin)}
-<Placemark><name>Trajet du jour</name><LineString><coordinates>${ligne}</coordinates></LineString></Placemark>
+${elements.join('\n')}
+<Placemark><name>Trajet du jour (Belle route)</name><LineString><coordinates>${ligne}</coordinates></LineString></Placemark>
 </Document></kml>`;
   const nom = `TerraTrack-jour-${j + 1}.kml`;
   if (natif) {
-    afficherToast('Choisis « Organic Maps » dans la liste : la journée y arrive en favoris, avec le tracé.');
+    afficherToast('Choisis « Organic Maps » : la journée y arrive en favoris, avec le tracé et les points de passage.');
     await TerrainNatif.partager({ nom, contenu: kml }).catch((e) => alert(e.message));
     return;
   }
@@ -1306,7 +1400,7 @@ document.querySelector('.quatre').addEventListener('click', (ev) => {
 // Couche IA : la demande en français choisit le bouton et met en avant les lieux qui y répondent.
 const reponseIA = $('#reponse-ia');
 iaDisponible().then(({ disponible }) => {
-  reponseIA.textContent = disponible ? 'IA de l’iPhone prête, sans réseau.' : 'Sans IA sur cet appareil : la demande est comprise par mots-clés.';
+  reponseIA.textContent = '';
 });
 $('#form-demande').addEventListener('submit', async (ev) => {
   ev.preventDefault();
@@ -1774,7 +1868,10 @@ $('#plus-tard').addEventListener('click', (ev) => {
 
 const dansDecouvrir = (l) => l.nom && l.categorie === 'decouvrir' && !l.activite;
 const COUCHES = {
+  parcours: { nom: 'Mon parcours', couleur: '#2f7d4a', test: () => false },
   plusTard: { nom: 'Plus tard', couleur: '#ffd400', test: (l) => estPourPlusTard(l.id) },
+  wc: { nom: 'Toilettes (WC)', couleur: '#00acc1', test: (l) => l.type === 'Toilettes' || l.amenity === 'toilets' || (l.categorie === 'pause' && /toilet/i.test(l.type || '')) },
+  eau: { nom: 'Eau potable', couleur: '#00897b', test: (l) => l.type === 'Eau potable' },
   viaferrata: { nom: 'Via ferrata', couleur: '#c0392b', test: (l) => l.activite === 'viaferrata' },
   randonnee: { nom: 'Randonnée', couleur: '#2f7d4a', test: (l) => l.activite === 'randonnee' },
   escalade: { nom: 'Escalade', couleur: '#8e44ad', test: (l) => l.activite === 'escalade' },
@@ -1787,7 +1884,6 @@ const COUCHES = {
   villages: { nom: 'Villages', couleur: '#d81b60', test: (l) => dansDecouvrir(l) && plaitA(l, ['villages']) },
   manger: { nom: 'Manger', couleur: '#455a64', test: (l) => l.nom && l.categorie === 'manger' },
   dormir: { nom: 'Dormir', couleur: '#3b3f8f', test: (l) => l.nom && l.categorie === 'dormir' },
-  eau: { nom: 'Eau potable', couleur: '#00897b', test: (l) => l.type === 'Eau potable' },
   carburant: { nom: 'Carburant', couleur: '#212121', test: (l) => l.categorie === 'carburant' },
   // Pas des lieux : les prévisions sur une grille de la partie visible (à 14 h, le jour du parcours affiché).
   meteo: { nom: 'Météo', couleur: '#1a73e8', test: () => false },
@@ -1812,15 +1908,16 @@ function majDecouverte() {
   const bornes = carte.carte.getBounds();
   const vus = new Map();
   afficherCoucheMeteo();
+  carte.visibiliteParcours(couchesCochees.has('parcours'));
   for (const k of Object.keys(COUCHES)) {
-    if (!couchesCochees.has(k) || k === 'meteo') continue;
+    if (!couchesCochees.has(k) || k === 'meteo' || k === 'parcours') continue;
     const liste = k === 'plusTard' ? lieuxPourPlusTard().map((f) => lieuParId.get(f.id) ?? f) : listeCouche(k);
     for (const l of liste)
       if (!vus.has(l.id) && bornes.contains([l.lon, l.lat])) vus.set(l.id, { ...l, couleur: COUCHES[k].couleur, favori: estPourPlusTard(l.id) });
   }
   const tous = [...vus.values()].sort((a, b) => b.favori - a.favori || interet(b) - interet(a));
   const montres = tous.slice(0, POINTS_MAX);
-  carte.afficherDecouverte(montres);
+  carte.afficherDecouverte(montres.map((l) => ({ ...l, nom: l.nom || (l.type === 'Toilettes' ? 'Toilettes publiques' : l.type || 'Lieu') })));
   $('#couches-compte').textContent = !couchesCochees.size
     ? 'Rien de coché.'
     : tous.length > montres.length
@@ -1855,6 +1952,7 @@ $('#couches').addEventListener('click', (ev) => {
   else couchesCochees.add(k);
   memoire.ecrire('couches', [...couchesCochees]);
   b.setAttribute('aria-pressed', String(couchesCochees.has(k)));
+  if (k === 'parcours') carte.visibiliteParcours(couchesCochees.has('parcours'));
   majDecouverte();
 });
 carte.carte.on('moveend', majDecouverte);
@@ -1918,10 +2016,10 @@ suivreMiseAJour();
 
 rendreParcours();
 majInfoPlusTard();
-ouvrirOnglet('parcours', plan ? 'parcours' : 'preparer');
+ouvrirOnglet('parcours', plan?.valide ? 'route' : plan ? 'parcours' : 'preparer');
 if (plan) {
   carte.pret.then(() => {
-    carte.afficherParcours(plan, -1);
-    carte.cadrer(plan.jours.flatMap((j) => j.coords));
+    carte.afficherParcours(plan, vue === 'route' ? jourActif : -1);
+    carte.cadrer((vue === 'route' ? plan.jours[jourActif].coords : plan.jours.flatMap((j) => j.coords)));
   });
 }

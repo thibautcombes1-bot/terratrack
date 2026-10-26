@@ -40,6 +40,10 @@ Les données (carte, routes, plus de 600 000 lieux) viennent d'OpenStreetMap. Le
 
 Toute aide est bienvenue :
 
+Le projet est en cours de développement : les parcours, les données de terrain et le suivi GPS doivent encore être éprouvés en conditions réelles. Le pack France, volumineux, n'est pas inclus dans le dépôt. Les cartes, restrictions routières, horaires et autorisations peuvent être incomplets ou périmés : vérifiez-les avant de prendre une décision sur la route.
+
+Pour installer le projet, lancer les tests ou proposer une correction, consultez [CONTRIBUTING.md](CONTRIBUTING.md).
+
 - **Signaler** un bug, un lieu mal placé ou une idée : onglet *Issues*.
 - **Améliorer les données** : TerraTrack lit OpenStreetMap. Corriger un camping, une source ou une via ferrata sur [openstreetmap.org](https://www.openstreetmap.org) améliore l'appli pour tout le monde au pack suivant.
 - **Proposer du code** : une *pull request*, avec `npm test` qui passe. Le code, les commentaires et les textes sont en français.

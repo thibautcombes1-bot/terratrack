@@ -125,6 +125,40 @@ Pistes d'amélioration : plusieurs coins pour les très longs voyages ; premier 
 longs quand le coin est loin (alerte « plus de N h de route ») ; remplir les journées sur place avec
 des idées proches (baignade, randonnée courte) même hors envies, en les proposant.
 
+## Reprise du 25 octobre 2026 : parcours sans visite ni hébergement
+
+- Corrigé : un voyage de plusieurs jours sans étape correspondante ni hébergement proche ne plante plus. La durée et les dates demandées sont conservées.
+- Sans hébergement trouvé, le point de fin est marqué « Hébergement à trouver » et une alerte invite à choisir une nuit. Une visite n'est plus présentée comme un hébergement ; le compte rendu ne propose pas ce point comme un lieu où dormir.
+- Une alerte générale explique l'absence d'étapes. Le choix explicite « Je me débrouille » conserve les nuits libres.
+- Régression couverte dans `terrain/src/parcours-sans-lieux.test.mjs` : voyage vide, visite sans hébergement, choix ultérieur d'un hôtel, nuits libres.
+- Vérifié : `npm test` passe avec 29 tests, aucun ignoré, dont les essais sur le pack France ; `npm run terrain:build` réussit. Pas de synchronisation ni d'installation iPhone dans cette reprise, pas de publication GitHub.
+
+## Installation iPhone du 25 octobre 2026
+
+- Application corrigée construite et signée en version 1.0 (build 2), sans modifier les réglages de version du projet : valeurs passées à la compilation.
+- `npx --no-install cap sync ios` terminé ; compilation iPhone réussie dans `/private/tmp/terratrack-corrige-20261025-iphone` ; signature vérifiée avec `codesign --verify --deep --strict`.
+- Pack France embarqué (carte, graphe et lieux). Le fichier JavaScript dans l’application signée a la même empreinte que celui de `terrain/dist`.
+- Installation confirmée sur l’iPhone Air physique ; relecture des applications installées : TerraTrack 1.0, build 2 ; lancement confirmé avec `devicectl`.
+- Installation effectuée en mise à jour, sans désinstaller l’application. Affichage de l’interface, données personnelles conservées et comportement en trajet non vérifiés visuellement pendant cette intervention.
+
+## Évolutions du 25 octobre 2026 : Belles routes, Dynamic Island, Carte & WC (Build 3)
+
+- **Points de passage Belles Routes & Organic Maps** :
+  - Extraction automatique de points de passage (`📍 Passage X.Y · Belle route`) le long des tronçons de plus de 20 km dans `suivi.js` (`extrairePointsPassage`, `prochainPointGuidage`).
+  - Injection ordonnée dans l'export KML partagé à Organic Maps pour verrouiller le tracé pittoresque.
+  - Guidage par étape via le point de passage intermédiaire pour forcer Organic Maps sur les départementales et éviter l'autoroute.
+  - 36 tests unitaires au vert (`npm test`).
+- **Dynamic Island & Live Activity (iOS)** :
+  - Composant natif `TrajetLiveActivity.swift` (SwiftUI / ActivityKit / WidgetKit) : affichage Dynamic Island (compacte et étendue) et bannière d'écran de verrouillage.
+  - Méthodes natives `liveActivityDemarrer`, `liveActivityMettreAJour`, `liveActivityArreter` dans `TerrainPlugin.swift`.
+  - Déclaration de `NSSupportsLiveActivities` et `NSSupportsLiveActivitiesFrequentUpdates` dans `Info.plist`.
+  - Mises à jour en direct depuis `main.js` calées sur la position GPS réelle.
+- **Onglet Carte épuré & Toilettes** :
+  - Le tracé du voyage est masqué par défaut dans l'onglet Carte et activable/désactivable d'un tap via le filtre « Mon parcours ».
+  - Ajout de la couche « Toilettes (WC) » sur la carte issue des données OpenStreetMap du pack.
+- **Installation iPhone** :
+  - Build 3 compilé, signé et installé sur l'iPhone Air physique via `devicectl`.
+
 ## Idées notées pour plus tard
 
 - Version Android (Capacitor sait le faire) puis Android Auto ; TerraTrack sur CarPlay demande une

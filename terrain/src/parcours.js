@@ -260,6 +260,7 @@ export function recalculerJour(pack, jour, conduiteMaxH) {
   jour.coucherMin = coucherSoleil(jour.date, jour.fin);
   jour.margeMin = jour.coucherMin - jour.fin.arriveeMin;
   jour.alertes = [];
+  if (jour.fin.aTrouver) jour.alertes.push('Aucun hébergement trouvé près de cette fin de journée : choisis un lieu où dormir.');
   if (jour.margeMin < 0) jour.alertes.push(`Arrivée ${Math.round(-jour.margeMin)} min après le coucher du soleil.`);
   else if (jour.margeMin < 30) jour.alertes.push('Arrivée juste avant la nuit.');
   if (jour.conduiteMin > conduiteMaxH * 60 + 20)
@@ -364,6 +365,7 @@ export function planifier(pack, p) {
       );
   }
   const { tournee, choisis } = composerTournee(ancres, meilleurs, { budgetKm, nbEtapes, prioritaires, maxParType });
+  if (!choisis.length) avertissements.push('Aucune étape ne correspond à tes choix sur ce trajet. Modifie tes envies ou ta destination.');
   // Place de chaque étape dans la tournée (0 au départ, 1 à l'arrivée) : l'ordre de passage.
   choisis.forEach((c) => (c.cle = tournee.indexOf(c) / Math.max(1, tournee.length - 1)));
   choisis.sort((a, b) => a.cle - b.cle);
@@ -415,10 +417,12 @@ export function planifier(pack, p) {
     // Journée sur place : on reste où l'on a dormi.
     else if (!etapes.length && i > 0) finJour = { ...jours.at(-1).fin, surPlace: true };
     else {
+      const pres = etapes.at(-1) ?? debut;
+      // Sans visite ni hébergement, garder un point de fin sans inventer un endroit où dormir.
       finJour = p.nuits.includes('debrouille')
-        ? nuitLibre(pack, etapes.at(-1) ?? debut)
-        : choisirNuit(pack, etapes.at(-1) ?? debut, p.nuits, nuitsPrises) ?? { ...resume(etapes.at(-1)), genre: 'nuit' };
-      nuitsPrises.add(finJour.id);
+        ? nuitLibre(pack, pres)
+        : choisirNuit(pack, pres, p.nuits, nuitsPrises) ?? { nom: pres.nom, lat: pres.lat, lon: pres.lon, type: 'Hébergement à trouver', genre: 'nuit', aTrouver: true };
+      if (finJour.id) nuitsPrises.add(finJour.id);
     }
     const jour = {
       date: ajouterJours(p.date, i),

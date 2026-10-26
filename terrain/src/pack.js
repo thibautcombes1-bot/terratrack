@@ -3,6 +3,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { PMTiles } from 'pmtiles';
 import { chargerGraphe, lireGrapheBinaire } from '../../commun/routeur.js';
+import { corrigerViaFerrata } from '../../commun/via-ferrata.js';
 
 const adresse = (chemin) => new URL(chemin, new URL(import.meta.env.BASE_URL, location.href)).href;
 
@@ -61,7 +62,7 @@ export async function chargerPack(region, signaler = () => {}) {
   return {
     meta,
     graphe,
-    lieux: donneesLieux.lieux,
+    lieux: corrigerViaFerrata(donneesLieux.lieux),
     communes: donneesLieux.communes,
     pmtiles: new PMTiles(Capacitor.isNativePlatform() ? new SourceNative(chemin) : adresse(chemin)),
   };

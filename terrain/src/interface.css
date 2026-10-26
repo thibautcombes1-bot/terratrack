@@ -1,0 +1,155 @@
+/* Une interface de voyage calme : hiérarchie native, surfaces blanches et une action à la fois. */
+:root {
+  --papier: #f5f5f7;
+  --carte-fond: #fff;
+  --encre: #1c2227;
+  --doux: #747a80;
+  --trait: #e6e8eb;
+  --vert: #246b50;
+  --vert-clair: #edf5f0;
+  --alerte: #a64d1e;
+  --bleu: #007aff;
+}
+body { font-size: 16px; line-height: 1.48; -webkit-font-smoothing: antialiased; }
+button, input, summary { touch-action: manipulation; }
+button { min-height: 44px; }
+button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, summary:focus-visible { outline: 3px solid #007aff80; outline-offset: 3px; }
+.haut { top: calc(env(safe-area-inset-top) + 14px); left: 18px; gap: 8px; }
+.marque, .pastille { background: #ffffffec; backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); box-shadow: 0 2px 14px #1b293015; }
+.marque { padding: 9px 15px; font-size: 18px; letter-spacing: -.7px; }
+.pastille { font-size: 11px; padding: 7px 10px; }
+.tiroir { border-radius: 28px 28px 0 0; box-shadow: 0 -4px 32px #19232b12; height: 77dvh; background: #f5f5f7f7; }
+.tiroir[data-vue='preparer']:not(.reduit):not(.grand), .tiroir[data-vue='parcours']:not(.reduit):not(.grand) { height: 82dvh; }
+.tiroir[data-vue='route']:not(.reduit):not(.grand) { height: 64dvh; }
+.tiroir.grand { height: calc(100dvh - env(safe-area-inset-top) - 65px); }
+.tiroir.reduit { height: calc(84px + env(safe-area-inset-bottom)); }
+.tiroir.compact { height: calc(340px + env(safe-area-inset-bottom)); }
+.poignee { min-height: 24px; width: 58px; flex-shrink: 0; }
+.poignee::after { height: 4px; top: 10px; left: 12px; right: 12px; background: #ccd0d3; }
+.onglets { background: #e8e9ed; border-radius: 14px; padding: 3px; margin: 0 20px; flex-shrink: 0; }
+.onglets button { font-size: 14px; min-height: 39px; border-radius: 11px; font-weight: 500; }
+.onglets button[aria-selected='true'] { font-weight: 650; box-shadow: 0 2px 5px #0000000b; }
+.contenu { padding: 0 20px 20px; scrollbar-width: thin; }
+.sous-onglets { display: flex; gap: 0; padding: 21px 0 13px; margin: 0 0 12px; background: transparent; border: 0; border-bottom: 1px solid var(--trait); border-radius: 0; }
+.sous-onglets button { display: flex; flex: 1; gap: 6px; align-items: center; justify-content: center; min-height: 36px; padding: 3px 1px; background: transparent; border: 0; font-size: 11.5px; color: var(--doux); font-weight: 500; white-space: nowrap; }
+.sous-onglets button[aria-selected='true'] { background: transparent; box-shadow: none; color: var(--vert); font-weight: 700; }
+.numero-etape { display: grid; place-items: center; height: 23px; width: 23px; flex-shrink: 0; border-radius: 50%; background: #e6e8eb; font-size: 10px; font-weight: 700; }
+[aria-selected='true'] > .numero-etape { background: var(--vert); color: #fff; }
+.sous-onglets button:disabled { opacity: .45; }
+.entete-ecran { margin: 14px 1px 25px; }
+.surtitre { font-size: 10px; letter-spacing: 1.8px; color: var(--vert); font-weight: 750; }
+.entete-ecran h1 { font-size: clamp(30px, 7.7vw, 36px); line-height: 1.13; letter-spacing: -1.4px; margin: 8px 0 9px; font-weight: 750; }
+.entete-ecran p { margin: 0; color: var(--doux); font-size: 14px; line-height: 1.5; max-width: 35em; }
+.carte-form { margin: 0 0 18px; padding: 20px 17px 13px; border: 0; border-radius: 20px; min-width: 0; background: #fff; }
+.carte-form legend { float: left; width: 100%; padding: 0; margin: 0 0 14px; color: var(--encre); font-size: 16px; font-weight: 650; letter-spacing: -.2px; }
+.carte-form legend + * { clear: both; }
+.champ { font-size: 12px; font-weight: 500; gap: 7px; margin-bottom: 16px; }
+input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='hidden']) { border: 1px solid #eceef1; border-radius: 12px; background: #f5f6f8; padding: 13px 12px; min-height: 48px; font-size: 16px; }
+input:focus { outline: 2px solid #246b5070; }
+.propositions { border: 0; border-radius: 14px; box-shadow: 0 8px 30px #1c22271a; }
+.propositions li { padding: 13px; min-height: 46px; }
+.ligne { gap: 7px; margin-bottom: 10px; }
+.puce { min-height: 40px; padding: 9px 12px; border: 1px solid #eceef1; background: #f8f9fa; border-radius: 12px; font-size: 12.5px; line-height: 1.3; font-weight: 500; }
+.puce[aria-pressed='true'] { border-color: #246b5040; background: var(--vert-clair); box-shadow: inset 0 0 0 .5px #246b5020; }
+[data-groupe='mode'] { display: grid; grid-template-columns: 1fr 1fr; }
+[data-groupe='mode'] .puce { min-height: 50px; font-size: 12.5px; text-align: center; padding: 9px 6px; }
+.envies { gap: 8px; }
+.envies .puce { border-radius: 30px; font-size: 12px; }
+.titre { font-size: 12px; font-weight: 600; margin-top: 15px; margin-bottom: 8px; color: var(--doux); }
+.aide-champ { margin: 0 0 14px; color: var(--doux); font-size: 12px; line-height: 1.5; }
+.reglage { margin: 0 0 10px; border: 0; border-radius: 17px; background: #fff; }
+.reglage > summary { list-style: none; position: relative; padding: 17px 40px 17px 17px; font-size: 14px; font-weight: 600; min-height: 62px; cursor: pointer; }
+.reglage summary::-webkit-details-marker, .jour-choix summary::-webkit-details-marker { display: none; }
+.reglage > summary::after, .jour-choix > summary::after { content: '›'; position: absolute; right: 18px; top: 22px; line-height: 1; font-size: 23px; font-weight: 400; color: #9da2a7; transform: rotate(0deg); }
+.reglage[open] > summary::after, .jour-choix[open] > summary::after { transform: rotate(90deg); }
+.reglage summary small { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 400; color: var(--doux); }
+.reglage-contenu { padding: 0 17px 16px; }
+.reglage-contenu .titre:first-child { margin-top: 0; }
+.reglage-contenu [data-groupe='vehicule'] .puce { font-size: 12px; }
+.deux { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+.trois { gap: 7px; }
+.trois input { padding-left: 8px !important; padding-right: 8px !important; }
+.principal { display: flex; justify-content: center; align-items: center; gap: 12px; border-radius: 15px; min-height: 54px; font-weight: 600; font-size: 15px; padding: 14px; margin-top: 12px; box-shadow: 0 3px 8px #246b5010; }
+.principal span[aria-hidden] { margin-left: auto; font-size: 19px; }
+.secondaire { background: #fff; border: 1px solid var(--trait); border-radius: 12px; font-size: 13px; padding: 11px 13px; }
+.suite-experience { position: sticky; bottom: -20px; z-index: 3; background: linear-gradient(#f5f5f700,#f5f5f7 15%); padding: 14px 0 20px; margin-top: 18px; text-align: center; }
+.suite-experience small { display: block; color: var(--doux); font-size: 10.5px; padding-top: 8px; }
+.suite-experience .lien { min-height: 40px; margin-top: 5px; font-size: 12px; text-decoration: none; }
+.limites { background: transparent; color: #999da3; font-size: 9px; line-height: 1.35; padding: 7px 20px 8px; }
+.info { font-size: 12px; color: var(--doux); line-height: 1.5; }
+.totaux { grid-template-columns: repeat(4, minmax(0,1fr)); margin: 0 0 20px; gap: 7px; }
+.totaux div { border: 0; background: #fff; border-radius: 14px; padding: 13px 2px; font-size: 10px; }
+.totaux b { font-size: 17px; letter-spacing: -.6px; font-weight: 650; }
+.encadre, .fiche { border: 0; border-radius: 18px; padding: 17px; margin-bottom: 15px; background: #fff; }
+.encadre .nom { font-size: 14px; font-weight: 600; }
+.encadre small { font-size: 11.5px; line-height: 1.55; margin-top: 7px; }
+.encadre .station { padding-top: 12px; margin-top: 12px; }
+.jour { border: 0; border-radius: 18px; margin-bottom: 14px; background: #fff; }
+.jour-tete { padding: 18px; background: #fff; position: relative; }
+.jour-tete strong { font-size: 14px; font-weight: 650; margin-bottom: 6px; letter-spacing: -.2px; }
+.jour-tete small { font-size: 11px; line-height: 1.6; }
+.jour-choix > summary { cursor: pointer; list-style: none; padding-right: 36px; }
+.jour-choix[open] > summary { border-bottom: 1px solid var(--trait); }
+.bloc-cr { padding: 10px 17px 16px; }
+.coche { padding: 13px 0; align-items: start; gap: 10px; }
+.coche + .coche { border-top: 1px solid #f1f2f4; }
+.coche input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--vert); margin-top: 2px; }
+.coche b { font-size: 13px; font-weight: 600; }
+.coche small { font-size: 11px; line-height: 1.5; }
+.etape { padding: 15px; gap: 10px; grid-template-columns: 48px minmax(0,1fr); }
+.etape .nom { font-size: 14px; font-weight: 600; }
+.etape .h { font-size: 12px; color: var(--doux); }
+.etape small { font-size: 11px; line-height: 1.5; }
+.actions { gap: 7px; flex-wrap: wrap; }
+.actions button { font-size: 11px; min-height: 38px; padding: 8px 10px; border: 1px solid var(--trait); background: #f7f8fa; border-radius: 10px; }
+.alerte { border: 0; border-radius: 11px; margin: 8px 0; padding: 11px 12px; font-size: 11.5px; background: #fff3e8; }
+.lien { text-decoration: none; }
+.entete-route { margin-bottom: 17px; }
+#choix-jour { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 5px; scrollbar-width: none; }
+#choix-jour .puce { flex-shrink: 0; min-height: 34px; font-size: 11px; padding: 7px 12px; }
+.carte-direct { background: #fff; border-radius: 23px; padding: 22px 19px; margin-bottom: 15px; box-shadow: 0 2px 12px #19232b04; }
+.ligne-direct { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.badge-direct { font-size: 10px; color: var(--vert); background: var(--vert-clair); border-radius: 20px; padding: 4px 8px; }
+.carte-direct h2 { font-size: 24px; line-height: 1.2; letter-spacing: -.7px; margin: 13px 0 8px; font-weight: 700; }
+.prochaine-distance { font-size: 21px; letter-spacing: -.5px; font-weight: 650; margin-bottom: 19px; }
+.prochaine-distance span { font-size: 15px; font-weight: 400; color: var(--doux); }
+.progression-voyage { margin: 24px 0 17px; }
+.progression-voyage > div:first-child { display: flex; justify-content: space-between; font-size: 12px; }
+.progression-voyage strong { font-size: 14px; font-weight: 600; }
+.progression-voyage strong span { color: var(--doux); font-weight: 400; }
+.jauge { height: 5px; margin-top: 10px; background: #e9ecef; }
+.jauge span { border-radius: inherit; transition: width .7s ease; }
+.mesures-direct { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding-top: 16px; border-top: 1px solid var(--trait); }
+.mesures-direct > div:last-child { grid-column: 1/-1; display: flex; justify-content: space-between; align-items: center; }
+.mesures-direct small { display: block; color: var(--doux); font-size: 10px; margin-bottom: 4px; }
+.mesures-direct strong { font-size: 15px; font-weight: 600; }
+.bouton-imprevu { min-height: 40px; margin-top: 12px; font-size: 11px; }
+.attente-gps p { color: var(--doux); font-size: 12px; }
+.etat-gps { display: flex; align-items: flex-start; gap: 9px; padding: 10px 2px; }
+.point-signal { width: 7px; height: 7px; margin-top: 7px; border-radius: 50%; background: #b3b8bc; flex-shrink: 0; }
+[data-signal='direct'] .point-signal { background: #2e9e68; box-shadow: 0 0 0 4px #2e9e6815; }
+[data-signal='erreur'] .point-signal { background: #e58a4e; }
+.etat-gps strong { font-size: 12px; font-weight: 600; }
+.etat-gps small { display: block; font-size: 10.5px; color: var(--doux); line-height: 1.5; margin-top: 3px; }
+.actions-gps { display: flex; gap: 8px; }
+.actions-gps button { font-size: 11px; min-height: 38px; flex: 1; }
+.position .aide-champ { font-size: 10px; margin: 2px 0 7px; }
+.titre-actions { margin: 22px 2px 12px; font-weight: 650; font-size: 15px; }
+.quatre { grid-template-columns: repeat(4,1fr); gap: 8px; }
+.quatre button { border: 0; background: #fff; border-radius: 16px; font-size: 10px; min-height: 81px; padding: 12px 2px; font-weight: 500; }
+.quatre button span { font-size: 22px; line-height: 1.4; display: block; margin-bottom: 5px; }
+.demande { margin: 8px 0 16px; }
+.demande input { font-size: 12px !important; }
+.tiroir .rond { width: 42px; height: 42px; min-height: 42px; background: #ffffffed; box-shadow: 0 2px 12px #00000010; }
+@media(min-width: 760px) {
+  .tiroir, .tiroir.grand, .tiroir[data-vue='preparer']:not(.reduit):not(.grand), .tiroir[data-vue='parcours']:not(.reduit):not(.grand), .tiroir[data-vue='route']:not(.reduit):not(.grand) { left: 20px; right: auto; width: 430px; bottom: 20px; height: calc(100dvh - 104px); border-radius: 26px; padding-bottom: 0; }
+  .tiroir.reduit { height: 84px; }
+  .tiroir.compact { height: 340px; }
+  .haut { left: 26px; top: 20px; }
+  .tiroir .rond { left: auto; right: -55px; bottom: 12px; }
+  .entete-ecran h1 { font-size: 34px; }
+}
+@media(prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
+}
