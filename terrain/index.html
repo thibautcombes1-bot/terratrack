@@ -8,17 +8,18 @@
     <meta name="apple-mobile-web-app-title" content="Cap Away" />
     <title>Cap Away</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="icon" href="./icone.svg" />
+    <link rel="icon" href="./icone-180.png" />
     <link rel="apple-touch-icon" href="./icone-180.png" />
     <link rel="stylesheet" href="./src/style.css" />
     <link rel="stylesheet" href="./src/interface.css" />
     <link rel="stylesheet" href="./src/navigation.css" />
+    <link rel="stylesheet" href="./src/marque.css" />
   </head>
   <body>
     <div id="carte"></div>
 
     <header class="haut">
-      <div class="marque">Cap <b>Away</b></div>
+      <div class="marque"><img src="./brand/cap-away-appicon.png" alt="" width="26" height="26" />Cap <b>Away</b></div>
       <div class="pastille" id="etat">…</div>
     </header>
 
@@ -84,7 +85,7 @@
           <p class="info" id="resume-conditions"></p>
           <div class="suite-experience"><button class="principal" type="submit">Comparer les road trips <span aria-hidden="true">→</span></button><button type="button" class="lien" data-onglet="reglages">Affiner mes réglages</button></div>
         </form>
-        <section id="reglages" class="panneau" hidden><div class="entete-ecran"><h1>Réglages</h1><p>Affinez les prochaines propositions de voyage. Les réglages GPS servent au guidage.</p></div><div id="reglages-voyage"></div><details class="reglage"><summary>GPS <small>Voix, vue et écran</small></summary><div class="reglage-contenu"><label class="reglage-case"><input type="checkbox" id="gps-voix" /> Annonces vocales</label><label class="champ">Vue du GPS<select id="gps-vue"><option value="3d">3D</option><option value="2d">2D</option></select></label><label class="reglage-case"><input type="checkbox" id="gps-ecran" /> Garder l’écran allumé pendant le guidage</label></div></details><button type="button" class="principal" data-onglet="parcours" data-retour-preparer>Revenir à Préparer</button></section>
+        <section id="reglages" class="panneau" hidden><div class="entete-ecran"><h1>Réglages</h1><p>Affinez les prochaines propositions de voyage. Les réglages GPS servent au guidage.</p></div><div id="reglages-voyage"></div><details class="reglage"><summary>Services en ligne <small>Vos accords, modifiables à tout moment</small></summary><div class="reglage-contenu"><label class="reglage-case"><input type="checkbox" data-service="guidage" /> Calcul du guidage FOSSGIS / OSRM</label><p class="info">Position précise, destination et points de passage transmis après accord.</p><label class="reglage-case"><input type="checkbox" data-service="services" /> Météo et prix des carburants en ligne</label><p class="info">Zones approximatives à Open-Meteo et identifiants de stations au service de l’État. Le pack reste disponible sans ces services.</p></div></details><details class="reglage"><summary>GPS <small>Voix, vue et écran</small></summary><div class="reglage-contenu"><label class="reglage-case"><input type="checkbox" id="gps-voix" /> Annonces vocales</label><label class="champ">Vue du GPS<select id="gps-vue"><option value="3d">3D</option><option value="2d">2D</option></select></label><label class="reglage-case"><input type="checkbox" id="gps-ecran" /> Garder l’écran allumé pendant le guidage</label></div></details><details class="reglage"><summary>À propos de Cap Away <small>Version 1.0 · confidentialité et assistance</small></summary><div class="reglage-contenu"><p>Cap Away 1.0 (8) · code open source · aucun abonnement dans cette version.</p><button type="button" class="secondaire" data-information="confidentialite">Confidentialité</button><button type="button" class="secondaire" data-information="assistance">Assistance et code source</button></div></details><button type="button" class="principal" data-onglet="parcours" data-retour-preparer>Revenir à Préparer</button></section>
 
         <!-- Le parcours -->
         <div id="parcours" class="panneau" hidden></div>
@@ -130,6 +131,8 @@
       </div>
       <footer class="limites" id="limites"></footer>
     </section>
+
+    <dialog id="informations" aria-label="Informations Cap Away"><div id="texte-information"></div><form method="dialog"><button class="principal">Fermer</button></form></dialog>
 
     <dialog id="noter">
       <form method="dialog">

@@ -1,0 +1,46 @@
+/* Palette Cap Away : les routes et catégories gardent leurs couleurs fonctionnelles. */
+:root {
+ --CapAwayGreen:#246b50; --CapAwayForest:#103e2c; --CapAwayLightGreen:#e7f1df;
+ --CapAwayCream:#faf7ed; --CapAwayBackground:#f5f6f1; --CapAwayAccent:#b5d66e;
+ --papier:var(--CapAwayBackground); --carte-fond:#fff; --surface:#fff; --surface-seconde:#edf1e9;
+ --encre:#182b22; --doux:#526359; --trait:#d6ded3; --vert:var(--CapAwayGreen); --vert-clair:var(--CapAwayLightGreen);
+ --action:var(--CapAwayGreen); --sur-action:#fff; --foret:var(--CapAwayForest); --sur-foret:var(--CapAwayCream);
+ --surface-flottante:#fafcf7f2; --alerte:#a3431b; --bleu:#1769d2;
+ color-scheme:light dark;
+}
+body { background:var(--papier); color:var(--encre); }
+.marque,.pastille { background:var(--surface-flottante); color:var(--encre); }
+.marque b { color:var(--vert); }
+.marque { display:inline-flex; gap:5px; align-items:center; white-space:nowrap; }
+.marque img { border-radius:6px; margin-right:3px; }
+.tiroir,.sous-onglets { background:var(--papier); }
+.onglets { background:var(--surface-seconde); }
+.onglets button { color:var(--doux); }
+.onglets button[aria-selected='true'] { background:var(--surface); color:var(--encre); }
+.carte-form,.encadre,.fiche,.jour,.jour-tete,.carte-direct,.totaux div,.quatre button,.reglage,.choix-roadtrip,dialog,
+.nav-bas,.nav-vues,#depart-gps,input:not([type='checkbox']):not([type='radio']),select,textarea {
+ background:var(--surface); color:var(--encre);
+}
+.info,.aide-champ,.choix-roadtrip small,.reglage summary small,.nav-credit,#nav-statut,.nav-option small,
+.nav-mesures small,.nav-destination small { color:var(--doux); }
+.principal,#nav-confirmer { background:var(--action)!important; color:var(--sur-action)!important; border-color:var(--action)!important; }
+#nav-confirmer:disabled { background:var(--surface-seconde)!important; color:var(--doux)!important; border-color:var(--trait)!important; }
+.secondaire,.actions button,#navigation button,.nav-vues button { background:var(--surface); color:var(--encre); border-color:var(--trait); }
+.nav-consigne { background:var(--foret); color:var(--sur-foret); }
+.nav-option:has(input:checked),.puce[aria-pressed='true'] { background:var(--vert-clair); color:var(--encre); }
+a,.lien,#nav-reessayer,#nav-preparer { color:var(--vert); }
+.suite-experience { background:linear-gradient(transparent,var(--papier) 15%); }
+.comparaison-roadtrips .suite-experience { background:none; }
+#informations { width:min(720px,calc(100vw - 28px)); max-height:85dvh; overflow:auto; padding:22px; border:1px solid var(--trait); border-radius:18px; }
+#informations h2 { margin-top:0; line-height:1.2; } #informations h3 { margin-top:24px; }
+#informations p,#informations li { font-size:15px; line-height:1.65; }
+#informations form { position:sticky; bottom:-22px; background:var(--surface); padding:12px 0 0; }
+dialog::backdrop { background:#071d16a6; }
+@media(prefers-color-scheme:dark) {
+ :root { --CapAwayBackground:#101e18; --surface:#1a2c22; --surface-seconde:#263a2e; --carte-fond:var(--surface);
+ --encre:#f0f5ec; --doux:#bdcdbf; --trait:#425749; --vert:#acd8b2; --vert-clair:#304c36; --action:#94c8a3; --sur-action:#102719;
+ --surface-flottante:#14261df2; --alerte:#eeb98e; }
+ .limites { color:var(--doux); } .alerte { background:#443223; color:#f6d3b3; }
+ #nav-fin { background:#422a2a!important; color:#f3b7b9; }
+}
+@media(prefers-contrast:more) { :root { --doux:var(--encre); } button,input,select,textarea { border-width:2px; } }
