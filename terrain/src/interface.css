@@ -162,3 +162,30 @@ input:focus { outline: 2px solid #246b5070; }
 .onglets button { min-width: 0; font-size: 12px; letter-spacing: 0; }
 .sous-onglets { top: 0; background: var(--papier); }
 .erreur { scroll-margin-top: 90px; scroll-margin-bottom: 150px; }
+.depart-localisation { grid-template-columns: minmax(0, 1fr) 82px; }
+#depart-gps { width: 82px; font-size: 14px; font-weight: 600; }
+.choix-roadtrips { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+.choix-roadtrip { display: flex; min-width: 0; gap: 10px; padding: 12px; border: 2px solid transparent; border-left-color: var(--couleur-roadtrip); border-radius: 14px; background: white; cursor: pointer; }
+.choix-roadtrip:has(input:checked) { border-color: var(--couleur-roadtrip); }
+.choix-roadtrip input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--couleur-roadtrip); margin: 3px 0 0; }
+.choix-roadtrip span { min-width: 0; }
+.choix-roadtrip b { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+.choix-roadtrip i { width: 18px; height: 5px; border-radius: 3px; background: var(--couleur-roadtrip); }
+.choix-roadtrip small { display: block; font-size: 11px; color: var(--doux); line-height: 1.5; margin-top: 4px; }
+.comparaison-roadtrips .entete-ecran { margin-bottom: 10px; }
+.comparaison-roadtrips .entete-ecran h1 { font-size: 25px; }
+.comparaison-roadtrips .entete-ecran p { font-size: 12px; }
+.comparaison-roadtrips .suite-experience { position: static; padding: 10px 0 0; margin-top: 5px; background: none; }
+.comparaison-roadtrips .suite-experience .lien { margin: 0 7px; }
+@media(max-width: 759px) {
+  .tiroir.comparaison-roadtrips:not(.grand):not(.reduit) { height: 60dvh; }
+  .comparaison-roadtrips .sous-onglets { padding: 7px 0; margin: 0 0 6px; }
+  .comparaison-roadtrips .entete-ecran { margin: 4px 0 6px; }
+  .comparaison-roadtrips .entete-ecran h1 { font-size: 21px; margin: 4px 0; }
+  .comparaison-roadtrips .entete-ecran p { display: none; }
+  .comparaison-roadtrips #parcours > .info { font-size: 10px; margin: 5px 0; }
+  .choix-roadtrip { padding: 8px 10px; }
+  .choix-roadtrip small { font-size: 10px; margin-top: 2px; }
+  .choix-roadtrip small:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .choix-roadtrip b { font-size: 13px; }
+}

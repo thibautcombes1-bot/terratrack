@@ -30,26 +30,29 @@ ChatGPT, puis donne-lui accès au dépôt (ou colle les fichiers qu'il demande).
 
 ## Ce qu'est TerraTrack aujourd'hui
 
-Appli iPhone (Capacitor 8 + page web), **tout fonctionne sans réseau** grâce à un « pack »
-embarqué (~1,5 Go) : carte, routes et lieux de toute la France métropolitaine et la Corse.
+Appli iPhone (Capacitor 8 + page web), avec un pack embarqué (~1,5 Go) pour la carte,
+la préparation routière et les lieux de France métropolitaine et Corse. Le calcul des
+manœuvres du guidage intégré demande une connexion ; un trajet calculé se poursuit hors réseau.
 
-- **Onglets** : Carte (lieux à cocher, couche météo), Parcours (Préparer / Parcours / En route),
-  Plus tard (favoris) ; Historique = icône ronde en bas à gauche de la carte.
+- **Onglets** : Carte, Voyage (Préparer / Choisir / En route), Favoris et Réglages.
+  Historique = icône ronde sur la carte.
 - **Préparer** : D'où pars-tu ? → **Avec quoi ?** (voiture/van/moto, carburant, litres au départ,
   conso, prix payé, réservoir, budget) → Pour aller où ? (destination, boucle, surprends-moi,
   **⛽ Avec mon plein**) → durée (½ j à 1 semaine), rythme, péages, envies (randonnée, via ferrata,
   escalade, canoë, baignade, UNESCO, patrimoine, panoramas, nature, villages, **☀️ Beau temps**),
   niveau des activités, nuits (camping, gratuit, bivouac, gîte, « je me débrouille »…), guidage
-  (Organic Maps par défaut, Waze, Plans).
-- **Compte rendu** avant le départ : étapes justifiées, **3 itinéraires chiffrés** (rapide, sans
-  péage, économe : km, temps, litres, carburant, péages, total), carburant (autonomie, plein
-  conseillé à la station la moins chère, budget), nuits (gratuites en premier + toujours un vrai lit).
+  (TerraTrack intégré, Waze, Plans). Véhicule et critères avancés sont dans Réglages ; leur
+  résumé reste visible dans Préparer. « D’ici » utilise une position GPS fraîche.
+- **Choisir** : jusqu’à trois voyages complets avec des visites et des tracés différents,
+  affichés ensemble en bleu, orange et violet. Sélection par tracé ou carte de voyage ;
+  aucune présélection, aucun assouplissement automatique des conditions. Puis vérification
+  des étapes et des nuits. Carburant et variantes entre les mêmes étapes sont repliés.
 - **En route** : avancée du jour (km, étapes faites, arrivée estimée, avance/retard), bouton
-  « 🧭 Organic Maps → prochaine étape », carburant restant, « J'ai fait le plein », 4 boutons
+  « Démarrer le guidage » vers la prochaine étape, carburant restant, « J'ai fait le plein », 4 boutons
   (pause, découvrir, manger, dormir) + demande en français (IA d'Apple sur l'iPhone).
-- **Suivi GPS en arrière-plan** automatique pendant un voyage validé (même appli fermée),
-  passages vérifiés (étapes faites, notes), **imprévus** : hors du tracé > 3 km pendant 3 min, ou
-  « route barrée » / « en retard » → la journée est recalculée depuis la position réelle.
+- **Suivi GPS** natif après activation explicite, passages vérifiés (étapes faites, notes).
+  La validation prépare le départ ; elle ne démarre pas le suivi. Hors du tracé > 3 km
+  pendant 3 min : avertissement, sans modifier le voyage. Adaptation manuelle depuis la position réelle.
 - **Météo** Open-Meteo (16 jours, gardée hors ligne) : parcours adapté (orage → pas de via ferrata).
 - **Prix des carburants** : open data de l'État (prix-carburants.gouv.fr) dans le pack, et prix
   du jour en ligne.
@@ -62,6 +65,7 @@ embarqué (~1,5 Go) : carte, routes et lieux de toute la France métropolitaine 
 | --- | --- |
 | `terrain/src/main.js` | l'interface (gros fichier : onglets, Préparer, parcours, en route, carte…) |
 | `terrain/src/parcours.js` | **le créateur d'itinéraire** (`planifier`) et les changements de plan |
+| `terrain/src/roadtrips.js` | recherche bornée de trois voyages distincts avec les mêmes conditions, déduplication et couleurs |
 | `server/itineraire.js` | outils de géométrie : `preparerRoute`, `situer`, `cleOrdre`, `selectionner`, `decouperJours`, `rectangle` |
 | `commun/routeur.js` | routeur hors ligne : graphe binaire, A*, Dijkstra borné, composantes (Corse à part), critère « économe » |
 | `commun/carburant.js` | consommation selon la route, bilan, niveau en route |
@@ -94,8 +98,8 @@ Pack local (si besoin, ~10 min, 5 Go à télécharger) : voir `terrain/README.md
 - La carte (1,3 Go) n'est **jamais** chargée en mémoire : lue par morceaux (`SourceNative` dans `pack.js`).
 - Le graphe est un **binaire** (`graphe.bin`, tableaux typés) ; la France = 2,8 M carrefours :
   pas de tableaux d'objets, pas de `Map` géantes ; filtrer d'abord par rectangle (`rectangle()`).
-- Organic Maps : `om://route?sll=lat,lon&saddr=…&dll=lat,lon&daddr=…&type=vehicle` (les 5 paramètres
-  sont obligatoires, dans cet ordre) ; sans position connue : `om://map?ll=lat,lon&n=nom`.
+- Organic Maps a été retiré de l’interface et des liens ; les anciennes préférences sont
+  migrées vers le guidage intégré. Ne pas réintroduire les anciens liens `om://`.
 - Lecture des gros GeoJSON d'osmium : couper sur `\n` seulement (`outils/pack/lignes.mjs`), pas readline.
 - Git : `gh auth setup-git` (sinon vieil identifiant) ; commits avec l'adresse noreply GitHub.
 - Versions des fichiers du pack = `date-empreinte` : le pack livré avec l'appli et celui du robot
@@ -185,10 +189,21 @@ des idées proches (baignade, randonnée courte) même hors envies, en les propo
 - Essais sur navigateur avec positions de test : migration Organic, départ exact, réglages persistés, parcours compatible validé, demande impossible refusée et choix de variantes. Ces essais ne remplacent pas un trajet réel sur iPhone.
 - Vérification finale : 61 tests réussis, construction web et compilation iPhone signée réussies. TerraTrack 1.0 (build 6) installée en mise à jour sur l'iPhone Air physique et lancement confirmé ; suivi en déplacement réel restant à essayer.
 
+## Comparaison de voyages et simplification du 27 octobre 2026
+
+- Préparer → comparer jusqu’à trois voyages → vérifier les étapes → préparer le départ → démarrer le guidage. Départ « D’ici » explicite ; conditions avancées résumées dans Préparer et modifiables dans Réglages.
+- `roadtrips.js` recherche au plus six compositions et garde jusqu’à trois voyages dont les visites et les tracés diffèrent. Les visites déjà proposées sont moins prioritaires, sans ajouter d’exclusion ni relâcher les conditions du voyage. Les copies et voyages trop similaires sont écartés.
+- Bleu, orange et violet sur la même carte ; les portions communes sont décalées et les arrêts du voyage sélectionné gardent sa couleur. Choix possible sur le tracé ou dans la liste, sans présélection. La sélection et la comparaison sont conservées au rechargement.
+- Sur mobile, la carte reste visible pendant la comparaison ; le cadrage attend la fin de l’animation du panneau. Aucun débordement horizontal des cartes de choix. Carburant et variantes routières entre les mêmes étapes restent dans les détails du voyage choisi.
+- Une recherche impossible conserve le voyage précédent. Une validation d’étapes incompatible conserve aussi le plan et les cases à corriger. La validation prépare le départ sans activer le suivi ; une sortie de route avertit sans remplacer le voyage.
+- Vérifié : 66 tests réussis, aucun ignoré ; construction terrain et compilation iPhone 1.0 (build 7) signée réussies. JavaScript et CSS de l’application signée identiques à la construction vérifiée. Essais navigateur avec le pack France et une position GPS de test : trois voyages distincts, clic sur tracé, sélection, retour comparaison, persistance, téléphone/ordinateur/petit écran et conservation du voyage après recherche impossible. Guidage en déplacement réel restant à vérifier.
+
+- Installation en mise à jour confirmée sur l’iPhone Air physique ; version 1.0 et build 7 relus après installation. Le lancement automatique a été refusé car le téléphone était verrouillé. Affichage et guidage en déplacement réel sur cet appareil non vérifiés pendant cette intervention.
+
 ## Idées notées pour plus tard
 
 - Version Android (Capacitor sait le faire) puis Android Auto ; TerraTrack sur CarPlay demande une
-  autorisation d'Apple (appli publiée). Organic Maps marche déjà sur CarPlay et Android Auto.
+  autorisation d'Apple (appli publiée).
 - Activité en direct sur l'écran verrouillé / Dynamic Island (prochaine étape, km restants).
-- Vérifier sur l'iPhone, en roulant : ouverture d'Organic Maps, envoi de la journée (KML), suivi
+- Vérifier sur l'iPhone, en roulant : guidage intégré, envoi de la journée (KML), suivi
   en arrière-plan, mise à jour automatique du pack.

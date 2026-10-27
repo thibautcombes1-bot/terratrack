@@ -134,7 +134,7 @@ export function dureeVisite(l) {
 const resume = (l) => ({ notoriete: l.notoriete, classe: l.classe, id: l.id, nom: l.nom, type: l.type, activite: l.activite, unesco: l.unesco, longueurKm: l.longueurKm, niveau: l.niveau, niveauRang: l.niveauRang, niveauTexte: l.niveauTexte, details: l.details, dureeH: l.activite ? l.dureeH : undefined, lat: l.lat, lon: l.lon, labels: l.labels, categorie: l.categorie, horaires: l.horaires, date: l.date, verifie: l.verifie, tel: l.tel, site: l.site, prix: l.prix, prixLe: l.prixLe, h24: l.h24, carburants: l.carburants, idPrix: l.idPrix, adresse: l.adresse });
 
 /** « Surprends-moi » : le coin le plus riche en lieux remarquables à bonne distance. */
-function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = null, envies = []) {
+function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = null, envies = [], variation = {}) {
   // Les lieux gardés « pour plus tard » attirent le voyage vers leur coin, et ce qui répond aux
   // envies cochées compte triple : une semaine « via ferrata » part là où il y en a.
   // Seulement ceux à portée, rangés dans une grille de ~15 km : on ne compare que les voisins.
@@ -165,7 +165,7 @@ function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = n
   for (const l of remarquables) {
     const d = distanceKm(depart, l);
     if (d < porteeKm * 0.25 || d > porteeKm) continue;
-    let score = (Math.random() - 0.5) * 2;
+    let score = ((variation.aleatoire ?? Math.random)() - 0.5) * 2;
     let repond = 0;
     for (const autre of voisins(l)) {
       if (distanceKm(l, autre) >= 15) continue;
@@ -176,6 +176,7 @@ function choisirCoin(lieux, depart, porteeKm, favoris = new Set(), beauTemps = n
     if (envies.length && !repond) score *= 0.2;
     // « Beau temps » : là où il fera beau compte plus que tout le reste.
     if (beauTemps) score *= beauTemps(l) ?? 1;
+    if (variation.coins?.some((coin) => distanceKm(coin, l) < Math.max(5, porteeKm * 0.3))) score *= 0.25;
     if (score > meilleurScore) {
       meilleurScore = score;
       meilleur = l;
@@ -274,7 +275,7 @@ export function recalculerJour(pack, jour, conduiteMaxH) {
  * jours, date, heure (min), rythme, envies[], nuits[], niveauMax (1 à 3, ou rien),
  * favoris[] (identifiants des lieux gardés « pour plus tard ») }.
  */
-export function planifier(pack, p) {
+export function planifier(pack, p, variation = {}) {
   const favoris = new Set(p.favoris ?? []);
   const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;
   const nbJours = p.jours <= 1 ? 1 : Math.round(p.jours);
@@ -285,7 +286,7 @@ export function planifier(pack, p) {
   // il reste de quoi faire des détours (sinon une semaine se résume à quelques étapes).
   const porteeKm = Math.min(p.porteeMaxKm ?? Infinity, budgetKm / 5);
   const cible =
-    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux, p.depart, porteeKm, favoris, p.beauTemps, p.envies) ?? p.depart;
+    p.mode === 'destination' ? p.destination : p.mode === 'boucle' && p.destination ? p.destination : choisirCoin(pack.lieux.filter((l) => !(p.exclus ?? []).includes(l.id)), p.depart, porteeKm, favoris, p.beauTemps, p.envies, variation) ?? p.depart;
   if (distanceKm(p.depart, cible) > 1.5 && !itineraire(pack.graphe, p.depart, cible, { eviterPeages: Boolean(p.eviterPeages) }))
     throw new Error('Pas de route trouvée vers cette destination.');
   const exclus = new Set(p.exclus ?? []);
@@ -343,7 +344,8 @@ export function planifier(pack, p) {
     }
     // L'envie compte, mais un lieu doit aussi être remarquable (labels, notoriété, type).
     // Tes notes vérifiées sur place favorisent (ou écartent) les lieux du même type.
-    const valeur = interet(l) + (plaitA(l, p.envies) ? 1.5 : 0) + (p.bonusParType?.[l.activite ?? l.type] ?? 0) + effetMeteo + Math.random() * 0.3;
+    const valeur = (interet(l) + (plaitA(l, p.envies) ? 1.5 : 0) + (p.bonusParType?.[l.activite ?? l.type] ?? 0) + effetMeteo)
+      * (variation.dejaProposes?.has(l.id) ? 0.25 : 1) + (variation.aleatoire ?? Math.random)() * 0.3;
     if (valeur > 0) candidats.push({ ...l, valeur, score: valeur, dureeH: dureeVisite(l) / 60 });
   }
   const nbEtapes = p.jours < 1 ? 2 : nbJours * rythme.etapes;

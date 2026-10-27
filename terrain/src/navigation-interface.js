@@ -173,7 +173,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     const signal = gpsActif() && positionRecente(position);
     if (mode === 'choix') {
       $('#nav-preparer').hidden = !revoirPreparer || charge || (!erreur && candidats.length > 0);
-      $('#nav-fleche').textContent = '⇄'; $('#nav-distance').textContent = 'Votre itinéraire';
+      $('#nav-fleche').textContent = '⇄'; $('#nav-distance').textContent = 'Vers la prochaine étape';
       $('#nav-instruction').textContent = !signal ? 'En attente de votre position GPS' : charge ? 'Recherche des itinéraires…' : candidats.length + ' itinéraire' + (candidats.length > 1 ? 's disponibles' : ' disponible');
       $('#nav-confirmer').disabled = selection == null || !signal || charge;
       $('#nav-reessayer').hidden = charge || !signal;

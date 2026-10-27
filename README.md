@@ -23,10 +23,10 @@ Ce qu'il y a dedans :
 
 ## L'appli de terrain : iPhone, hors ligne, toute la France
 
-Dans `terrain/`, le compagnon de route, qui marche **sans réseau** sur toute la France métropolitaine et la Corse :
+Dans `terrain/`, le compagnon de route pour la France métropolitaine et la Corse. La carte et la préparation fonctionnent sans réseau ; le calcul initial du guidage demande une connexion :
 
 - **Préparer** : départ, destination ou boucle, durée, rythme, péages, envies (randonnée, via ferrata, escalade, canoë, baignade, UNESCO, patrimoine…), niveau des activités, nuits (camping, camping gratuit, bivouac, « je me débrouille »…).
-- **Parcours** : chaque étape dit pourquoi elle est là, un compte rendu est à valider avant le départ, et le guidage passe par Waze ou Plans.
+- **Choisir** : jusqu’à trois road trips différents sur la même carte, en trois couleurs. Chaque étape dit pourquoi elle est là ; les arrêts se vérifient avant de démarrer le guidage intégré.
 - **En route** : quatre boutons (Une pause, À découvrir, Manger, Dormir) avec le détour et l'heure d'arrivée, et une demande en français comprise par l'IA de l'iPhone.
 - **Carte** : les lieux à cocher (via ferrata, randonnées, eau potable…), leur fiche, et « Plus tard » pour le prochain road trip.
 - **Carburant, sans se ruiner** : consommation selon la route, autonomie, plein conseillé à la station la moins chère (prix de [prix-carburants.gouv.fr](https://www.prix-carburants.gouv.fr), du jour quand il y a du réseau), budget, et « ⛽ Avec mon plein » : où aller et revenir sans refaire le plein.
@@ -40,11 +40,13 @@ Les données (carte, routes, plus de 600 000 lieux) viennent d'OpenStreetMap. Le
 
 L'application est organisée en Préparer → Choisir → En route, avec Carte, Favoris et une section Réglages séparée. Le départ peut être une commune ou « Ma position » : une position GPS ponctuelle est demandée au téléphone puis actualisée au calcul du voyage. Ce bouton n'active pas le suivi permanent.
 
+Choisir présente jusqu'à trois road trips complets, avec des visites et des tracés différents. Ils sont visibles ensemble en bleu, orange et violet ; les portions communes sont décalées pour garder les couleurs lisibles. Touchez un tracé ou une carte de voyage, puis vérifiez ses étapes. Aucun voyage n'est présélectionné. S'il n'existe qu'un ou deux voyages compatibles, ce nombre est affiché. La comparaison reste disponible avant la validation.
+
 Les propositions respectent les conditions explicites de Préparer : dates, durée, rythme, envies, niveau, hébergements, péages, budget carburant estimé et autonomie avec réserve. Les tracés identiques sont dédupliqués. Si aucun trajet n'est compatible, l'application demande de revoir Préparer. Les conditions ne sont pas assouplies automatiquement ; une météo demandée mais non vérifiable empêche de confirmer une proposition. Réglages regroupe le véhicule et les choix avancés, ainsi que la voix, la vue 2D/3D et le maintien de l'écran allumé.
 
 Le GPS utilise les positions reçues du téléphone ; après 15 secondes sans position récente, les consignes sont suspendues. La position reste réelle hors du tracé et les déplacements manuels de la carte ne figent pas le marqueur. Aucun déplacement n'est simulé. Le lien Organic Maps et sa préférence ont été retirés ; les anciennes installations passent au guidage intégré.
 
-Le bouton « Choisir mon itinéraire » compare les routes disponibles avec leur tracé, distance et durée. Aucun itinéraire n'est présélectionné : le guidage commence après sélection puis confirmation. Les péages et le passage par le parcours du voyage sont des options explicites. Une sortie de route ne remplace jamais le trajet sans un nouveau choix. L'application GPS choisie dans les réglages est respectée.
+Après vérification des étapes, « Préparer le départ » ouvre En route. « Démarrer le guidage » demande le GPS et compare les routes vers la prochaine étape, avec leur tracé, distance et durée. Ce choix est distinct de la comparaison des road trips complets. Aucun itinéraire n'est présélectionné : le guidage commence après sélection puis confirmation. Une sortie de route avertit sans modifier automatiquement le voyage. L'application GPS choisie dans les réglages est respectée.
 
 Le guidage intégré utilise une carte inclinée avec les bâtiments du pack, le suivi dans le sens du déplacement, la prochaine manœuvre, la distance et l'arrivée estimée. Les annonces vocales utilisent la voix française du téléphone ; une commande permet de les couper.
 

@@ -50,7 +50,7 @@
         <form id="preparer" class="panneau" autocomplete="off">
           <div class="entete-ecran"><span class="surtitre">VOTRE PROCHAINE ESCAPADE</span><h1>Et si on partait ?</h1><p>Vos envies. Votre rythme. On s’occupe du parcours.</p></div>
           <fieldset class="carte-form"><legend>Le voyage</legend>
-            <div class="champ"><label for="depart-voyage">D'où pars-tu ?</label><div class="depart-localisation"><div class="recherche"><input id="depart-voyage" name="depart" placeholder="Choisir une commune" /><ul class="propositions" hidden></ul></div><button type="button" id="depart-gps" title="Partir de ma position" aria-label="Partir de ma position">⌖</button></div><small id="depart-gps-etat" role="status" hidden></small></div>
+            <div class="champ"><label for="depart-voyage">D'où pars-tu ?</label><div class="depart-localisation"><div class="recherche"><input id="depart-voyage" name="depart" placeholder="Choisir une commune" /><ul class="propositions" hidden></ul></div><button type="button" id="depart-gps" title="Partir de ma position" aria-label="Partir de ma position">⌖ D’ici</button></div><small id="depart-gps-etat" role="status" hidden></small></div>
             <div class="titre">Quelle envie de départ ?</div><div class="ligne" data-groupe="mode" data-unique></div>
             <p class="info" id="info-plein" hidden></p>
             <label class="champ" id="champ-destination">Où vas-tu ?<div class="recherche"><input name="destination" placeholder="Choisir une destination" /><ul class="propositions" hidden></ul></div></label>
@@ -81,9 +81,10 @@
             <div class="titre">Votre application GPS</div><div class="ligne" data-groupe="guidage" data-unique></div>
           </div></details>
           <p class="info" id="info-plus-tard" hidden></p><p class="info" id="deja-vus" hidden></p><p class="erreur" id="erreur-preparer" hidden></p>
-          <div class="suite-experience"><button class="principal" type="submit">Découvrir mon parcours <span aria-hidden="true">→</span></button><button type="button" class="lien" data-onglet="reglages">Affiner mes réglages</button></div>
+          <p class="info" id="resume-conditions"></p>
+          <div class="suite-experience"><button class="principal" type="submit">Comparer les road trips <span aria-hidden="true">→</span></button><button type="button" class="lien" data-onglet="reglages">Affiner mes réglages</button></div>
         </form>
-        <section id="reglages" class="panneau" hidden><div class="entete-ecran"><h1>Réglages</h1></div><div id="reglages-voyage"></div><details class="reglage"><summary>GPS <small>Voix, vue et écran</small></summary><div class="reglage-contenu"><label class="reglage-case"><input type="checkbox" id="gps-voix" /> Annonces vocales</label><label class="champ">Vue du GPS<select id="gps-vue"><option value="3d">3D</option><option value="2d">2D</option></select></label><label class="reglage-case"><input type="checkbox" id="gps-ecran" /> Garder l’écran allumé pendant le guidage</label></div></details><button type="button" class="principal" data-onglet="parcours" data-retour-preparer>Revenir à Préparer</button></section>
+        <section id="reglages" class="panneau" hidden><div class="entete-ecran"><h1>Réglages</h1><p>Affinez les prochaines propositions de voyage. Les réglages GPS servent au guidage.</p></div><div id="reglages-voyage"></div><details class="reglage"><summary>GPS <small>Voix, vue et écran</small></summary><div class="reglage-contenu"><label class="reglage-case"><input type="checkbox" id="gps-voix" /> Annonces vocales</label><label class="champ">Vue du GPS<select id="gps-vue"><option value="3d">3D</option><option value="2d">2D</option></select></label><label class="reglage-case"><input type="checkbox" id="gps-ecran" /> Garder l’écran allumé pendant le guidage</label></div></details><button type="button" class="principal" data-onglet="parcours" data-retour-preparer>Revenir à Préparer</button></section>
 
         <!-- Le parcours -->
         <div id="parcours" class="panneau" hidden></div>

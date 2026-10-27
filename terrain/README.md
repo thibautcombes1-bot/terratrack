@@ -2,6 +2,8 @@
 
 ## Navigation intégrée
 
+Le parcours utilisateur est Préparer → Choisir → En route, avec les options avancées dans Réglages. « D’ici » demande une position GPS récente pour préparer le voyage. Choisir compare jusqu’à trois voyages complets, avec des arrêts différents et des tracés bleu, orange et violet simultanément visibles sur la carte. Aucune sélection automatique ; un ou deux voyages seulement si les conditions ne permettent pas davantage. Les variantes de route entre les mêmes étapes restent dans un panneau secondaire du voyage choisi. Le départ du guidage est explicite après vérification des étapes.
+
 Le guidage 3D utilise la carte locale MapLibre/Protomaps et les étapes de navigation du service OSRM de FOSSGIS. Le calcul initial et les recalculs demandent une connexion ; les consignes d'un trajet calculé sont conservées localement pour le poursuivre hors réseau. Un seul trajet est conservé, pendant au plus 24 heures. Le profil est automobile, sans contrôle des gabarits.
 
 Le choix d'itinéraire est explicite : variantes réellement disponibles, tracés, distances et durées ; aucune présélection ni départ automatique. Les options péage et parcours du voyage sont réglables avant le calcul. Un trajet enregistré est proposé hors ligne mais doit aussi être choisi puis confirmé. Le bouton Itinéraires permet de changer en cours de guidage ; une sortie de route ne provoque aucun remplacement automatique.
@@ -15,12 +17,10 @@ Le planificateur web historique à la racine est une application distincte.
 
 ## Pack embarqué
 
-Le pack couvre l’Hérault, la Lozère et les Cévennes dans le rectangle
-`2.45,43.15,4.25,44.98`. Son identifiant technique `lozere` est conservé
-pour les installations et les parcours existants. Carte PMTiles jusqu’au zoom 14,
-graphe routier et lieux sont embarqués ; le calcul ne sollicite aucun serveur.
-Les données OpenStreetMap proviennent de l’extrait Geofabrik Languedoc-Roussillon
-du 23 octobre 2026, complété par les lieux Wikidata déjà présents dans le projet.
+Le pack par défaut couvre la France métropolitaine et la Corse, avec carte PMTiles,
+graphe routier et lieux embarqués. La préparation des voyages utilise ce graphe sans serveur.
+La date des données OpenStreetMap est indiquée dans `meta.json` et dans l’application.
+L’ancien pack régional `lozere` reste accessible s’il est présent, avec `?pack=lozere`.
 
 Le réseau routier reste un prototype : il ne remplace pas un moteur de navigation
 prenant en compte toutes les restrictions de circulation et tous les gabarits.

@@ -34,6 +34,8 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
     const zone = conteneur.getBoundingClientRect();
     const panneau = document.querySelector('#tiroir')?.getBoundingClientRect();
     const espace = { top: marge, right: marge, bottom: marge, left: marge };
+    const entete = document.querySelector('.haut')?.getBoundingClientRect();
+    if (entete) espace.top = Math.max(marge, entete.bottom - zone.top + 14);
     if (panneau) {
       if (panneau.width > zone.width * 0.8) espace.bottom = Math.max(marge, zone.bottom - panneau.top + 12);
       else espace.left = Math.max(marge, panneau.right - zone.left + 12);
@@ -80,6 +82,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
       carte.addSource('guidage', { type: 'geojson', data: vide });
       carte.addSource('choix-guidage', { type: 'geojson', data: vide });
       carte.addSource('parcours', { type: 'geojson', data: vide });
+      carte.addSource('roadtrips', { type: 'geojson', data: vide });
       carte.addSource('arrets', { type: 'geojson', data: vide });
       carte.addSource('suggestions', { type: 'geojson', data: vide });
       carte.addSource('position', { type: 'geojson', data: vide });
@@ -103,12 +106,18 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         type: 'line',
         source: 'parcours',
         paint: {
-          'line-color': COULEURS.route,
+          'line-color': ['coalesce', ['get', 'couleur'], COULEURS.route],
           'line-width': 4.5,
           'line-opacity': ['case', ['get', 'actif'], 1, 0.45],
         },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       });
+      carte.addLayer({ id: 'roadtrips-bord', type: 'line', source: 'roadtrips',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': ['case', ['get', 'choisi'], 9, 7], 'line-offset': ['get', 'decalage'] } });
+      carte.addLayer({ id: 'roadtrips', type: 'line', source: 'roadtrips',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'couleur'], 'line-width': ['case', ['get', 'choisi'], 6, 4], 'line-offset': ['get', 'decalage'] } });
       carte.addLayer({
         id: 'deja',
         type: 'symbol',
@@ -159,7 +168,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         paint: {
           'circle-radius': ['match', ['get', 'genre'], 'nuit', 9, 'depart', 7, 7.5],
           'circle-color': ['match', ['get', 'genre'], 'nuit', COULEURS.dormir, 'depart', '#222', '#ffffff'],
-          'circle-stroke-color': COULEURS.route,
+          'circle-stroke-color': ['coalesce', ['get', 'couleur'], COULEURS.route],
           'circle-stroke-width': 2.5,
         },
       });
@@ -301,7 +310,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         features: plan.jours.map((j, i) => ({
           type: 'Feature',
           geometry: { type: 'LineString', coordinates: j.coords },
-          properties: { actif: actif < 0 || actif === i },
+          properties: { actif: actif < 0 || actif === i, couleur: plan.params?.couleurRoadtrip ?? COULEURS.route },
         })),
       });
       let numero = 0;
@@ -310,7 +319,24 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
         for (const e of j.etapes) arrets.push(point(e, { genre: 'etape', etiquette: `${++numero}. ${e.nom}`, id: e.id }));
         arrets.push(point(j.fin, { genre: j.fin.genre === 'nuit' ? 'nuit' : 'fin', etiquette: j.fin.genre === 'nuit' ? `🌙 ${j.fin.nom}` : j.fin.nom }));
       });
+      for (const arret of arrets) arret.properties.couleur = plan.params?.couleurRoadtrip ?? COULEURS.route;
       donnees('arrets', { type: 'FeatureCollection', features: arrets });
+    },
+    afficherRoadtrips(plans, selection = null) {
+      this.afficherParcours(selection == null ? null : plans[selection]);
+      donnees('roadtrips', { type: 'FeatureCollection', features: plans.flatMap((p, index) => p.jours
+        .filter((j) => j.coords.length > 1).map((j) => ({ type: 'Feature',
+          properties: { index, couleur: p.params.couleurRoadtrip, choisi: index === selection, decalage: (index - (plans.length - 1) / 2) * 4 },
+          geometry: { type: 'LineString', coordinates: j.coords },
+        }))).sort((a, b) => Number(a.properties.choisi) - Number(b.properties.choisi)) });
+      pret.then(() => {
+        for (const id of ['parcours-bord', 'parcours']) carte.setLayoutProperty(id, 'visibility', plans.length ? 'none' : 'visible');
+      });
+    },
+    surChoixRoadtrip(rappel) {
+      carte.on('click', 'roadtrips', (ev) => rappel(Number(ev.features[0].properties.index)));
+      carte.on('mouseenter', 'roadtrips', () => { carte.getCanvas().style.cursor = 'pointer'; });
+      carte.on('mouseleave', 'roadtrips', () => { carte.getCanvas().style.cursor = ''; });
     },
     visibiliteParcours(visible) {
       const v = visible ? 'visible' : 'none';

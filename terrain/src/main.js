@@ -3,6 +3,7 @@ import { BOUTONS, suggerer } from './boutons.js';
 import { avancerSurFeuille, dateLocale, etatGps, extrairePointsPassage, lirePoint, positionRecente } from './suivi.js';
 import { COULEURS, creerCarte } from './carte.js';
 import { creerNavigation } from './navigation-interface.js';
+import { COULEURS_ROADTRIPS, proposerRoadtrips } from './roadtrips.js';
 import { h, heure, duree, km, versMinutes, dateTexte, moisTexte, simplifier, memoire } from './outils.js';
 import { chargerPack, etatMiseAJour, miseAJourPossible, verifierMiseAJour } from './pack.js';
 import { comprendre, correspond, iaDisponible } from './ia.js';
@@ -35,7 +36,6 @@ import {
   totaux,
   estGratuit,
   nuitsGratuites,
-  ITINERAIRES,
   choisirItineraire,
   comparerItineraires,
   verifierConditions,
@@ -88,6 +88,7 @@ const ecrireLimites = (miseAJour = '') =>
 ecrireLimites();
 
 let plan = memoire.lire('plan', null);
+let roadtrips = memoire.lire('roadtrips', { plans: [], selection: null, detail: false });
 if (plan?.params) { plan.params.conditionsStrictes = true; plan.params.vehicule ??= vehiculeCalcul(); }
 // Lieux déjà visités : jamais reproposés, grisés sur la carte.
 const dejaVus = new Map(memoire.lire('dejaVus', []).map((l) => [l.id, l]));
@@ -181,8 +182,10 @@ function ouvrirOnglet(onglet, sousVue) {
     carte.visibiliteParcours(true);
     carte.afficherDecouverte([]);
   }
+  dessinerVoyage();
 }
 function majEtapesExperience() {
+  tiroir.classList.toggle('comparaison-roadtrips', vue === 'parcours' && ongletCourant === 'parcours' && comparerRoadtrips());
   for (const b of document.querySelectorAll('[data-vue]')) {
     const bloque = b.dataset.vue === 'route' ? !plan?.valide : b.dataset.vue === 'parcours' ? !plan : false;
     b.disabled = bloque;
@@ -261,6 +264,7 @@ for (const [nom, g] of Object.entries(GROUPES)) {
     }
     if (g.reglage) majReglages();
     else memoire.ecrire('brouillon', { ...memoire.lire('brouillon', {}), [nom]: choix(nom) });
+    majResumeConditions();
   });
 }
 const choix = (nom) => [...document.querySelectorAll(`[data-groupe="${nom}"] [aria-pressed="true"]`)].map((p) => p.dataset.valeur);
@@ -284,6 +288,7 @@ function majReglages() {
   memoire.ecrire('guidage', choix('guidage')[0] ?? 'interne');
   if (plan) rendreParcours();
   majResumeVehicule();
+  majResumeConditions();
   majPortee();
 }
 document.addEventListener('input', (ev) => {
@@ -294,6 +299,16 @@ function majResumeVehicule() {
   $('#resume-vehicule').textContent = `${VEHICULES[v.type]?.nom.replace(/^[^\p{L}]+/u, '') ?? 'Véhicule'} · ${v.litresDepart} L${v.budget ? ` · budget ${euros(v.budget)}` : ''}`;
 }
 majResumeVehicule();
+function majResumeConditions() {
+  const v = lireVehicule();
+  $('#resume-conditions').textContent = [RYTHMES[choix('rythme')[0]]?.nom,
+    choix('peages')[0] === 'eviter' ? 'Sans péage' : 'Péages autorisés',
+    choix('nuits').map((n) => NUITS[n]?.nom).join(', ') || 'Aucune nuit choisie',
+    choix('niveau')[0] === 'tous' ? 'Tous niveaux' : `Niveau ${choix('niveau')[0]} maximum`,
+    v.budget ? `Carburant : ${euros(v.budget)} maximum` : 'Sans limite de budget carburant',
+  ].filter(Boolean).join(' · ');
+}
+majResumeConditions();
 /** Le véhicule pour les calculs : sans prix saisi, le prix médian du carburant dans le pack. */
 function vehiculeCalcul() {
   const v = lireVehicule();
@@ -418,102 +433,96 @@ majMode();
 
 form.addEventListener('submit', async (ev) => {
   ev.preventDefault();
-  const ancienPlan = plan;
-  const erreur = $('#erreur-preparer');
-  const mode = choix('mode')[0];
-  const p = {
-    depart: choisiesLieux.depart,
-    destination: mode === 'surprise' || mode === 'plein' ? null : choisiesLieux.destination,
-    mode,
-    jours: Number(choix('jours')[0]),
-    date: form.elements.date.value,
-    heure: versMinutes(form.elements.heure.value || '09:30'),
-    rythme: choix('rythme')[0],
-    envies: choix('envies').filter((e) => e !== 'beautemps'),
-    veutBeauTemps: choix('envies').includes('beautemps'),
-    nuits: choix('nuits'),
-    eviterPeages: choix('peages')[0] === 'eviter',
-    niveauMax: choix('niveau')[0] === 'tous' ? null : Number(choix('niveau')[0]),
-    favoris: lieuxPourPlusTard().map((l) => l.id),
-    exclus: [...dejaVus.keys(), ...effetDesNotes().ecartes],
-    bonusParType: effetDesNotes().bonusParType,
-    conditionsStrictes: true,
-    vehicule: vehiculeCalcul(),
-  };
-  if (p.depart?.origine === 'gps') {
-    try { p.depart = choisiesLieux.depart = await recupererDepartGps(); }
-    catch (e) { return montrerErreur(erreur, e.message); }
-  }
-  memoire.ecrire('brouillon', { ...p, envies: choix('envies'), mode, jours: String(p.jours), heure: form.elements.heure.value, niveau: choix('niveau')[0] });
-  if (!p.depart) return montrerErreur(erreur, 'Choisis un départ ou utilise ta position GPS.');
-  if (mode === 'destination' && !p.destination) return montrerErreur(erreur, 'Choisis ta destination dans la liste.');
-  erreur.hidden = true;
-  // Un voyage fait (premier jour avant aujourd'hui) est rangé dans l'historique avant d'être remplacé ;
-  // refaire le parcours le jour même, avant de partir, ne remplit pas l'historique.
-  if (plan?.valide && plan.jours[0].date < dateLocale()) archiver(plan);
-  // « Beau temps » : la météo des jours du voyage tout autour du départ, avant de choisir où aller.
-  if (p.veutBeauTemps) {
-    const bouton = form.querySelector('button[type=submit]');
-    bouton.textContent = 'Où fera-t-il beau ?';
-    // Jusqu'où regarder : comme le parcours (jours et rythme), et pas plus loin que le plein.
-    const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;
-    const parJours = rythme.conduiteH * 45 * Math.max(1, Math.round(p.jours)) * 0.35;
-    const portee = mode === 'destination' || (mode === 'boucle' && p.destination) ? 0 : mode === 'plein' ? Math.min(parJours, porteePlein().rayon) : parJours;
-    const dates = Array.from({ length: Math.max(1, Math.round(p.jours)) }, (_, i) => ajouterJoursIso(p.date, i));
-    if (portee && (await chargerMeteo(grilleAutour(p.depart, portee)).catch(() => false) || coefficientBeauTemps(p.depart.lat, p.depart.lon, dates) != null))
-      p.beauTemps = (l) => coefficientBeauTemps(l.lat, l.lon, dates);
-    else if (portee) {
-      bouton.textContent = 'Découvrir mon parcours';
-      return montrerErreur(erreur, 'Le beau temps demandé n’est pas vérifiable. Revoir les conditions dans Préparer.');
-    }
-    bouton.textContent = 'Découvrir mon parcours';
-  }
-  const calculer = (extra = {}) => {
-    if (mode !== 'plein') return planifier(pack, { ...p, ...extra });
-    // Le plein est le budget de route : tout le voyage tient dedans (le reste du temps, sur place).
-    const { kmUtiles, rayon } = porteePlein();
-    // 18 % de marge : les vraies routes font un peu plus que l'estimation à vol d'oiseau.
-    const essai = planifier(pack, { ...p, ...extra, kmMax: kmUtiles * 0.82, porteeMaxKm: rayon });
-    essai.pleinSuffit = !bilanCarburant(essai.jours, vehiculeCalcul(), []).alerte;
-    return essai;
-  };
-  try {
-    plan = calculer();
-  } catch (e) {
-    plan = ancienPlan;
-    return montrerErreur(erreur, e.message);
-  }
-  // Avec du réseau : la météo du trajet (16 jours au plus), puis le parcours refait en en tenant compte.
   const bouton = form.querySelector('button[type=submit]');
+  if (bouton.disabled) return;
   bouton.disabled = true;
-  bouton.textContent = 'Météo du trajet…';
-  if (await chargerMeteo(pointsMeteo(plan)).catch(() => false) || plan.jours.some((j) => meteoA(j.fin.lat, j.fin.lon, j.date))) {
-    try {
-      plan = calculer({ meteo: (l, date) => risques(meteoJournee(l.lat, l.lon, date)) });
-    } catch {
-      // On garde le parcours sans météo.
+  bouton.textContent = 'Recherche des road trips…';
+  try {
+    const erreur = $('#erreur-preparer');
+    const mode = choix('mode')[0];
+    const p = {
+      depart: choisiesLieux.depart,
+      destination: mode === 'surprise' || mode === 'plein' ? null : choisiesLieux.destination,
+      mode,
+      jours: Number(choix('jours')[0]),
+      date: form.elements.date.value,
+      heure: versMinutes(form.elements.heure.value || '09:30'),
+      rythme: choix('rythme')[0],
+      envies: choix('envies').filter((e) => e !== 'beautemps'),
+      veutBeauTemps: choix('envies').includes('beautemps'),
+      nuits: choix('nuits'),
+      eviterPeages: choix('peages')[0] === 'eviter',
+      niveauMax: choix('niveau')[0] === 'tous' ? null : Number(choix('niveau')[0]),
+      favoris: lieuxPourPlusTard().map((l) => l.id),
+      exclus: [...dejaVus.keys(), ...effetDesNotes().ecartes],
+      bonusParType: effetDesNotes().bonusParType,
+      conditionsStrictes: true,
+      vehicule: vehiculeCalcul(),
+    };
+    if (p.depart?.origine === 'gps') {
+      try { p.depart = choisiesLieux.depart = await recupererDepartGps(); }
+      catch (e) { return montrerErreur(erreur, e.message); }
     }
-  }
-  bouton.disabled = false;
-  bouton.textContent = 'Découvrir mon parcours';
-  plan.params.meteoCompatible = !p.veutBeauTemps || plan.jours.every((j) => [j.debut, ...j.etapes, j.fin].every((l) => {
-    const m = meteoJournee(l.lat, l.lon, j.date);
-    return Boolean(m && !risques(m).pluie && !risques(m).orage && !risques(m).neige);
-  }));
-  const compatibles = comparerItineraires(pack, plan, p.vehicule);
-  if (!compatibles.length) {
-    const raisons = verifierConditions(plan, p.vehicule);
-    plan = ancienPlan;
-    return montrerErreur(erreur, 'Aucun itinéraire ne respecte toutes les conditions. Revoir les conditions dans Préparer. ' + raisons.join(' '));
-  }
-  plan.jours = compatibles[0].jours;
-  plan.params.optionsItineraire = compatibles[0].options;
-  trace = []; memoire.ecrire('trace', trace); carte.afficherTrace(trace);
-  carte.afficherPortee(null);
-  jourActif = 0;
-  enregistrer();
-  ouvrirOnglet('parcours', 'parcours');
-  carte.cadrer(plan.jours.flatMap((j) => j.coords));
+    memoire.ecrire('brouillon', { ...p, envies: choix('envies'), mode, jours: String(p.jours), heure: form.elements.heure.value, niveau: choix('niveau')[0] });
+    if (!p.depart) return montrerErreur(erreur, 'Choisis un départ ou utilise ta position GPS.');
+    if (mode === 'destination' && !p.destination) return montrerErreur(erreur, 'Choisis ta destination dans la liste.');
+    erreur.hidden = true;
+    // Un voyage fait (premier jour avant aujourd'hui) est rangé dans l'historique avant d'être remplacé ;
+    // refaire le parcours le jour même, avant de partir, ne remplit pas l'historique.
+    if (plan?.valide && plan.jours[0].date < dateLocale()) archiver(plan);
+    // « Beau temps » : la météo des jours du voyage tout autour du départ, avant de choisir où aller.
+    if (p.veutBeauTemps) {
+      bouton.textContent = 'Où fera-t-il beau ?';
+      // Jusqu'où regarder : comme le parcours (jours et rythme), et pas plus loin que le plein.
+      const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;
+      const parJours = rythme.conduiteH * 45 * Math.max(1, Math.round(p.jours)) * 0.35;
+      const portee = mode === 'destination' || (mode === 'boucle' && p.destination) ? 0 : mode === 'plein' ? Math.min(parJours, porteePlein().rayon) : parJours;
+      const dates = Array.from({ length: Math.max(1, Math.round(p.jours)) }, (_, i) => ajouterJoursIso(p.date, i));
+      if (portee && (await chargerMeteo(grilleAutour(p.depart, portee)).catch(() => false) || coefficientBeauTemps(p.depart.lat, p.depart.lon, dates) != null))
+        p.beauTemps = (l) => coefficientBeauTemps(l.lat, l.lon, dates);
+      else if (portee) {
+        bouton.textContent = 'Recherche des road trips…';
+        return montrerErreur(erreur, 'Le beau temps demandé n’est pas vérifiable. Revoir les conditions dans Préparer.');
+      }
+      bouton.textContent = 'Recherche des road trips…';
+    }
+    if (mode === 'plein') {
+      const { kmUtiles, rayon } = porteePlein();
+      p.kmMax = kmUtiles * 0.82;
+      p.porteeMaxKm = rayon;
+    }
+    let meteoIndisponible = false;
+    const resultat = await proposerRoadtrips(pack, p, {
+      progression: (essai, trouves) => { bouton.textContent = `Recherche des road trips… ${trouves}/3`; },
+      async preparer(candidat, variation) {
+        const chargee = !meteoIndisponible && await chargerMeteo(pointsMeteo(candidat)).catch(() => false);
+        const connue = candidat.jours.some((j) => meteoA(j.fin.lat, j.fin.lon, j.date));
+        if (chargee || connue) {
+          candidat = planifier(pack, { ...p, meteo: (l, date) => risques(meteoJournee(l.lat, l.lon, date)) }, variation);
+        }
+        else meteoIndisponible = true;
+        candidat.params.meteoCompatible = !p.veutBeauTemps || candidat.jours.every((j) => [j.debut, ...j.etapes, j.fin].every((l) => {
+          const m = meteoJournee(l.lat, l.lon, j.date);
+          return Boolean(m && !risques(m).pluie && !risques(m).orage && !risques(m).neige);
+        }));
+        if (mode === 'plein') candidat.pleinSuffit = !bilanCarburant(candidat.jours, p.vehicule, []).alerte;
+        return candidat;
+      },
+    });
+    if (!resultat.plans.length) {
+      return montrerErreur(erreur, 'Aucun road trip ne respecte toutes les conditions. Revoir les conditions dans Préparer. ' + resultat.raisons.join(' '));
+    }
+    resultat.plans.forEach((p, i) => { p.params.couleurRoadtrip = COULEURS_ROADTRIPS[i]; });
+    roadtrips = { plans: resultat.plans, selection: null, detail: false };
+    plan = roadtrips.plans[0];
+    trace = []; memoire.ecrire('trace', trace); carte.afficherTrace(trace);
+    carte.afficherPortee(null);
+    jourActif = 0;
+    enregistrer();
+    ouvrirOnglet('parcours', 'parcours');
+    carte.cadrer(roadtrips.plans.flatMap((p) => p.jours.flatMap((j) => j.coords)));
+  } catch (e) { montrerErreur($('#erreur-preparer'), e.message); }
+  finally { bouton.disabled = false; bouton.textContent = 'Comparer les road trips'; }
 });
 function montrerErreur(zone, texte) {
   zone.textContent = texte;
@@ -532,10 +541,56 @@ document.addEventListener('click', (ev) => {
 
 function enregistrer() {
   memoire.ecrire('plan', plan);
+  memoire.ecrire('roadtrips', roadtrips);
   rendreParcours();
   majEtapesExperience();
-  carte.afficherParcours(plan, -1);
+  dessinerVoyage();
 }
+
+function comparerRoadtrips() { return !plan?.valide && roadtrips.plans.length > 0 && !roadtrips.detail; }
+function dessinerVoyage() {
+  const comparer = comparerRoadtrips() && ongletCourant === 'parcours' && vue === 'parcours';
+  carte.afficherRoadtrips(comparer ? roadtrips.plans : [], roadtrips.selection);
+  if (!comparer) {
+    carte.afficherParcours(plan, vue === 'route' ? jourActif : -1);
+    carte.pret.then(() => carte.visibiliteParcours(ongletCourant !== 'carte' || couchesCochees.has('parcours')));
+  }
+}
+function rendreRoadtrips(zone) {
+  const n = roadtrips.plans.length;
+  zone.innerHTML = `<div class="entete-ecran"><h1>Choisir son road trip</h1><p>${n === 3 ? 'Trois voyages différents' : `${n} voyage${n > 1 ? 's' : ''} compatible${n > 1 ? 's' : ''} trouvé${n > 1 ? 's' : ''}`} avec vos conditions. Touchez une couleur sur la carte ou un voyage ci-dessous.</p></div>
+    <p class="info">Départ : ${h(roadtrips.plans[0].params.depart.nom)} · ${dateTexte(roadtrips.plans[0].params.date)}</p>
+    <div class="choix-roadtrips">${roadtrips.plans.map((p, i) => {
+      const t = totaux(p), cout = bilanCarburant(p.jours, p.params.vehicule).cout;
+      const visites = p.jours.flatMap((j) => j.etapes);
+      return `<label class="choix-roadtrip" style="--couleur-roadtrip:${COULEURS_ROADTRIPS[i]}"><input type="radio" name="roadtrip" value="${i}" ${i === roadtrips.selection ? 'checked' : ''}/><span><b><i aria-hidden="true"></i> Road trip ${i + 1}</b><small>${km(t.metres)} · ${duree(t.conduiteMin)} de route · carburant ~${euros(cout)}</small><small>${h(visites.slice(0, 3).map((e) => e.nom).join(' → ') || p.cible.nom)}${visites.length > 3 ? ` · +${visites.length - 3} arrêts` : ''}</small></span></label>`;
+    }).join('')}</div>
+    ${n < 3 ? '<p class="info">Les autres parcours calculés sont trop proches ou ne respectent pas vos conditions.</p>' : ''}
+    <div class="suite-experience"><button type="button" class="principal" data-action="choisir-roadtrip" ${roadtrips.selection == null ? 'disabled' : ''}>Voir les étapes de ce voyage →</button><button type="button" class="lien" data-action="voir-roadtrips">Voir tous les tracés</button><button type="button" class="lien" data-revoir-preparer>Modifier Préparer</button></div>`;
+}
+function selectionnerRoadtrip(index) {
+  if (!comparerRoadtrips() || !roadtrips.plans[index]) return;
+  roadtrips.selection = index;
+  memoire.ecrire('roadtrips', roadtrips);
+  for (const radio of $('#parcours').querySelectorAll('[name="roadtrip"]')) radio.checked = Number(radio.value) === index;
+  $('#parcours [data-action="choisir-roadtrip"]').disabled = false;
+  dessinerVoyage();
+}
+$('#parcours').addEventListener('change', (ev) => {
+  if (ev.target.name === 'roadtrip') selectionnerRoadtrip(Number(ev.target.value));
+});
+carte.surChoixRoadtrip((index) => { if (ongletCourant === 'parcours' && vue === 'parcours') selectionnerRoadtrip(index); });
+window.addEventListener('resize', () => {
+  if (comparerRoadtrips() && ongletCourant === 'parcours' && vue === 'parcours') {
+    carte.carte.resize();
+    carte.cadrer(roadtrips.plans.flatMap((p) => p.jours.flatMap((j) => j.coords)));
+  }
+});
+// Le cadrage attend la hauteur finale : au début de l'animation le tiroir masque encore la carte.
+tiroir.addEventListener('transitionend', (ev) => {
+  if (ev.target === tiroir && ev.propertyName === 'height' && comparerRoadtrips() && ongletCourant === 'parcours' && vue === 'parcours')
+    carte.cadrer(roadtrips.plans.flatMap((p) => p.jours.flatMap((j) => j.coords)));
+});
 
 function rendreParcours() {
   const zone = $('#parcours');
@@ -543,6 +598,7 @@ function rendreParcours() {
     zone.innerHTML = '<p class="info">Aucun parcours pour l’instant : réponds aux questions de « Préparer ».</p>';
     return;
   }
+  if (comparerRoadtrips()) return rendreRoadtrips(zone);
   if (plan.valide === false) return rendreCompteRendu(zone);
   passeesAffichage = etapesFaites();
   const t = totaux(plan);
@@ -766,15 +822,15 @@ function rendreCompteRendu(zone) {
       `${icone} <b>${h(l.nom || l.type)}</b> <small>${h(l.nom ? l.type : '')} · au km ${l.kmDepuisDepart}${l.ecartKm >= 0.3 ? `, à ${l.ecartKm} km de la route` : ''}${l.horaires ? ` · ${h(l.horaires)}` : ''}</small>`,
     );
   zone.innerHTML = `
-    <div class="entete-ecran"><span class="surtitre">UNE ESCAPADE À VOTRE IMAGE</span><h1>Votre voyage.</h1><p>Voici votre proposition. Gardez les arrêts qui vous plaisent, choisissez vos nuits, puis prenez la route.</p></div>
+    <div class="entete-ecran"><h1>Les étapes du voyage</h1><p>Vérifiez vos arrêts, puis préparez le départ.</p></div>
+    ${roadtrips.plans.length ? '<button type="button" class="lien" data-action="comparer-roadtrips">← Comparer les road trips</button>' : ''}
     <div class="totaux">
       <div><b>${km(t.metres)}</b>distance</div>
       <div><b>${duree(t.conduiteMin)}</b>de route</div>
       <div><b>${t.peage ? 'oui' : plan.params.eviterPeages ? 'évités' : 'aucun'}</b>péage</div>
       <div><b>+${duree(t.detourMin)}</b>de détours</div>
     </div>
-    ${blocItineraires()}
-    ${blocCarburant()}
+    <details class="reglage"><summary>Carburant et budget</summary>${blocCarburant()}</details>
     <p class="info">Ce qui te plaît : ${h([...plan.params.envies.map((e) => ENVIES[e]), ...(plan.params.veutBeauTemps ? ['☀️ Beau temps'] : [])].join(', ') || 'rien de coché')}</p>
     ${plan.favorisInclus ? `<p class="info">⭐ ${plan.favorisInclus} lieu(x) de ta liste « Plus tard » inclus.</p>` : ''}
     ${
@@ -822,13 +878,16 @@ function rendreCompteRendu(zone) {
             .join('')}</div></article>`
         : ''
     }
-    <div class="suite-experience"><button type="button" class="principal" data-action="valider">Valider et passer en route <span aria-hidden="true">→</span></button><button type="button" class="lien" data-action="modifier-choix">Modifier mes envies</button></div>`;
+    <details class="reglage"><summary>Affiner la route entre ces étapes</summary>${blocItineraires()}</details>
+    <div class="suite-experience"><button type="button" class="principal" data-action="valider">Préparer le départ <span aria-hidden="true">→</span></button><button type="button" class="lien" data-action="modifier-choix">Modifier Préparer</button></div>`;
 }
 
 /** Applique les choix du compte rendu, recalcule, et marque le parcours comme validé. */
 function validerCompteRendu() {
   const zone = $('#parcours');
   if (!plan.params.itineraireChoisi) { afficherToast('Choisissez un itinéraire compatible avant de valider.'); return; }
+  const avant = plan;
+  plan = JSON.parse(JSON.stringify(plan));
   const gardes = new Set([...zone.querySelectorAll('[data-cr="etape"]:checked')].map((c) => c.dataset.id));
   garderEtapes(pack, plan, gardes);
   for (const radio of zone.querySelectorAll('[data-cr="nuit"]:checked')) {
@@ -847,13 +906,13 @@ function validerCompteRendu() {
   for (const a of alternatives) ajouterEtape(pack, plan, a.jour, a);
   plan.alternatives = (plan.alternatives ?? []).filter((a) => !alternatives.includes(a));
   const problemes = verifierConditions(plan);
-  if (problemes.length) { afficherToast('Revoir Préparer : ' + problemes.join(' ')); rendreParcours(); return; }
+  if (problemes.length) { plan = avant; afficherToast('Revoir Préparer : ' + problemes.join(' ')); return; }
   plan.valide = true;
+  plan.suiviArrete = true;
   plan.valideLe = Date.now();
   enregistrer();
   ouvrirOnglet('parcours', 'route');
-  suiviAutomatique();
-  afficherToast('Votre voyage est prêt. Bonne route !');
+  afficherToast('Voyage prêt. Démarrez le guidage quand vous partez.');
   document.querySelector('.contenu').scrollTop = 0;
 }
 
@@ -968,7 +1027,7 @@ async function guider(appli, cible) {
   const n = encodeURIComponent(point.nom || 'Étape');
   window.open(appli === 'waze' ? `https://waze.com/ul?ll=${point.lat},${point.lon}&navigate=yes` : `https://maps.apple.com/?daddr=${point.lat},${point.lon}&q=${n}&dirflg=d`, '_blank');
 }
-const libelleGuidage = () => guidagePrefere() === 'interne' ? 'Choisir mon itinéraire' : 'Continuer avec ' + NOMS_GUIDAGE[guidagePrefere()];
+const libelleGuidage = () => guidagePrefere() === 'interne' ? 'Démarrer le guidage' : 'Continuer avec ' + NOMS_GUIDAGE[guidagePrefere()];
 const boutonGuidage = (l) => `<button type="button" data-guide="${l.lat},${l.lon}" data-nom="${h(l.nom ?? '')}">🧭 ${h(libelleGuidage())}</button>`;
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-guide]');
@@ -992,6 +1051,27 @@ $('#parcours').addEventListener('click', (ev) => {
   if (!b || !plan) return;
   const j = Number(b.dataset.j);
   switch (b.dataset.action) {
+    case 'choisir-roadtrip': {
+      const choisi = roadtrips.plans[roadtrips.selection];
+      if (!choisi) return;
+      plan = JSON.parse(JSON.stringify(choisi));
+      plan.params.itineraireChoisi = true;
+      roadtrips.detail = true;
+      enregistrer();
+      ouvrirOnglet('parcours', 'parcours');
+      carte.cadrer(plan.jours.flatMap((j) => j.coords));
+      return;
+    }
+    case 'comparer-roadtrips':
+      roadtrips.detail = false;
+      enregistrer();
+      ouvrirOnglet('parcours', 'parcours');
+      carte.cadrer(roadtrips.plans.flatMap((p) => p.jours.flatMap((j) => j.coords)));
+      return;
+    case 'voir-roadtrips':
+      regler(0);
+      carte.cadrer(roadtrips.plans.flatMap((p) => p.jours.flatMap((j) => j.coords)));
+      return;
     case 'valider':
       return validerCompteRendu();
     case 'modifier-choix':
@@ -1276,14 +1356,17 @@ $('#gps').addEventListener('click', async () => {
 
 let horsParcoursDepuis = null;
 let dernierRecalcul = 0;
-/** À plus de 3 km du tracé du jour pendant 3 minutes : changement d'itinéraire compris, on recalcule. */
+/** À plus de 3 km pendant 3 minutes : avertir, laisser le voyageur décider. */
 function surveillerItineraire(quand) {
   if (!enVoyage() || !position) return;
   const j = plan.jours[jourActif];
   const ecart = situer(routeDe(j.coords), position).ecart;
   if (ecart <= 3) return (horsParcoursDepuis = null);
   horsParcoursDepuis ??= quand;
-  if (quand - horsParcoursDepuis >= 3 * 60000 && Date.now() - dernierRecalcul > 15 * 60000) recaler('Tu as quitté le parcours prévu');
+  if (quand - horsParcoursDepuis >= 3 * 60000 && Date.now() - dernierRecalcul > 15 * 60000) {
+    dernierRecalcul = Date.now();
+    afficherToast('Vous avez quitté le parcours. « Adapter la suite depuis ma position » permet de le modifier.');
+  }
 }
 /** La suite de la journée recalculée depuis la position, à l'heure réelle. */
 function recaler(raison) {
@@ -1942,6 +2025,8 @@ function terminerVoyage() {
   for (const e of plan.jours.flatMap((j) => j.etapes)) if (passes.has(e.id)) marquerDejaVu(e);
   archiver(plan);
   plan = null;
+  roadtrips = { plans: [], selection: null, detail: false };
+  memoire.ecrire('roadtrips', roadtrips);
   trace = [];
   memoire.ecrire('trace', trace);
   carte.afficherTrace(trace);
@@ -2151,7 +2236,7 @@ majInfoPlusTard();
 ouvrirOnglet('parcours', plan?.valide ? 'route' : plan ? 'parcours' : 'preparer');
 if (plan) {
   carte.pret.then(() => {
-    carte.afficherParcours(plan, vue === 'route' ? jourActif : -1);
-    carte.cadrer((vue === 'route' ? plan.jours[jourActif].coords : plan.jours.flatMap((j) => j.coords)));
+    dessinerVoyage();
+    carte.cadrer(comparerRoadtrips() ? roadtrips.plans.flatMap((p) => p.jours.flatMap((j) => j.coords)) : (vue === 'route' ? plan.jours[jourActif].coords : plan.jours.flatMap((j) => j.coords)));
   });
 }
