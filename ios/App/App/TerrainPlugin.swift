@@ -43,9 +43,9 @@ final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
     func demarrer() {
         gestionnaire.delegate = self
         gestionnaire.activityType = .automotiveNavigation
-        gestionnaire.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        gestionnaire.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         // Les positions sont aussi transmises à l'écran, sans attendre la relecture du journal.
-        gestionnaire.distanceFilter = 10
+        gestionnaire.distanceFilter = kCLDistanceFilterNone
         gestionnaire.pausesLocationUpdatesAutomatically = false
         gestionnaire.allowsBackgroundLocationUpdates = true
         gestionnaire.showsBackgroundLocationIndicator = true
@@ -132,11 +132,58 @@ final class SuiviTrajet: NSObject, CLLocationManagerDelegate {
     }
 }
 
+private final class PositionDepart: NSObject, CLLocationManagerDelegate {
+    private let gps = CLLocationManager()
+    private var retour: (([Double]?, String?) -> Void)?
+    private var delai: DispatchWorkItem?
+
+    func demander(_ resultat: @escaping ([Double]?, String?) -> Void) {
+        guard retour == nil else { resultat(nil, "Une localisation est déjà en cours."); return }
+        guard CLLocationManager.locationServicesEnabled() else { resultat(nil, "Activez la localisation ou choisissez une commune."); return }
+        retour = resultat
+        gps.delegate = self
+        gps.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        let arret = DispatchWorkItem { [weak self] in self?.finir(nil, "Position indisponible. Réessayez ou choisissez une commune.") }
+        delai = arret
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: arret)
+        autoriser()
+    }
+
+    private func autoriser() {
+        guard retour != nil else { return }
+        switch gps.authorizationStatus {
+        case .notDetermined: gps.requestWhenInUseAuthorization()
+        case .authorizedAlways, .authorizedWhenInUse: gps.requestLocation()
+        default: finir(nil, "Localisation refusée. Vous pouvez choisir une commune.")
+        }
+    }
+
+    private func finir(_ point: [Double]?, _ erreur: String?) {
+        let rappel = retour
+        retour = nil
+        delai?.cancel()
+        delai = nil
+        gps.stopUpdatingLocation()
+        rappel?(point, erreur)
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) { autoriser() }
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let p = locations.last(where: { $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy <= 100 && abs($0.timestamp.timeIntervalSinceNow) <= 30 }) else {
+            finir(nil, "Position trop imprécise. Réessayez ou choisissez une commune.")
+            return
+        }
+        finir([p.timestamp.timeIntervalSince1970 * 1000, p.coordinate.latitude, p.coordinate.longitude, p.horizontalAccuracy], nil)
+    }
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { finir(nil, "Signal GPS indisponible. Réessayez ou choisissez une commune.") }
+}
+
 @objc(TerrainPlugin)
 public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin, AVSpeechSynthesizerDelegate {
     public let identifier = "TerrainPlugin"
     public let jsName = "Terrain"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "positionActuelle", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "guidageParler", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "guidageEcran", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "partager", returnType: CAPPluginReturnPromise),
@@ -151,6 +198,16 @@ public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin, AVSpeechSynthesizerDele
     ]
 
     private let voixGuidage = AVSpeechSynthesizer()
+    private let positionDepart = PositionDepart()
+
+    @objc func positionActuelle(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.positionDepart.demander { point, erreur in
+                if let point { call.resolve(["point": point]) }
+                else { call.reject(erreur ?? "Position indisponible") }
+            }
+        }
+    }
 
     public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])

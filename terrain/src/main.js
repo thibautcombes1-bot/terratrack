@@ -10,7 +10,7 @@ import { MOTS, PRECISION_MAX_M, RAYON_M, effetDesNotes, noteDe, noter, passageVa
 import { ajouterPhoto, commenter, photosDe, retirerPhoto, souvenirDe, tousLesSouvenirs } from './souvenirs.js';
 import { archiver, basculerPlusTard, estPourPlusTard, lieuxPourPlusTard, oublierVoyage, retirerPlusTard, voyages } from './carnet.js';
 import { distanceKm } from '../../commun/geo.js';
-import { bilanCarburant, niveauA } from '../../commun/carburant.js';
+import { bilanCarburant, niveauA, profilConso } from '../../commun/carburant.js';
 import { preparerRoute as routeDe, situer } from '../../server/itineraire.js';
 import { itineraireMulti } from '../../commun/routeur.js';
 import { registerPlugin } from '@capacitor/core';
@@ -38,6 +38,7 @@ import {
   ITINERAIRES,
   choisirItineraire,
   comparerItineraires,
+  verifierConditions,
   pleinsPrevus,
   recalerJour,
   stationsSurLaRoute,
@@ -46,6 +47,7 @@ import {
 // Le pack de la France ; « ?pack=lozere » ouvre un autre pack présent (essais sur le Mac).
 const REGION = new URLSearchParams(location.search).get('pack') ?? 'france';
 const $ = (s) => document.querySelector(s);
+if (memoire.lire('guidage', 'interne') === 'organic') memoire.ecrire('guidage', 'interne');
 
 // ---------- Hors ligne ----------
 
@@ -86,6 +88,7 @@ const ecrireLimites = (miseAJour = '') =>
 ecrireLimites();
 
 let plan = memoire.lire('plan', null);
+if (plan?.params) { plan.params.conditionsStrictes = true; plan.params.vehicule ??= vehiculeCalcul(); }
 // Lieux déjà visités : jamais reproposés, grisés sur la carte.
 const dejaVus = new Map(memoire.lire('dejaVus', []).map((l) => [l.id, l]));
 function marquerDejaVu(lieu) {
@@ -145,6 +148,11 @@ function ouvrirOnglet(onglet, sousVue) {
   if (sousVue === 'parcours' && !plan) sousVue = 'preparer';
   if (sousVue) vue = sousVue;
   const nom = onglet === 'parcours' ? vue : onglet === 'carte' ? 'carte-vue' : onglet;
+  if (nom === 'reglages') {
+    $('#gps-voix').checked = memoire.lire('navigationVoix', true);
+    $('#gps-ecran').checked = memoire.lire('navigationEcran', true);
+    $('#gps-vue').value = memoire.lire('navigationVue', '3d');
+  }
   ongletCourant = onglet;
   tiroir.dataset.vue = nom;
   majEtapesExperience();
@@ -181,7 +189,7 @@ function majEtapesExperience() {
     b.setAttribute('aria-disabled', String(bloque));
   }
 }
-const PANNEAUX = ['preparer', 'parcours', 'route', 'carte-vue', 'historique', 'plus-tard'];
+const PANNEAUX = ['preparer', 'parcours', 'route', 'carte-vue', 'historique', 'plus-tard', 'reglages'];
 const ongletOuvert = () => PANNEAUX.find((id) => !$(`#${id}`).hidden);
 // Toucher une seconde fois : l'icône Historique ramène au parcours, « Carte » baisse le tiroir.
 for (const b of document.querySelectorAll('[data-onglet]'))
@@ -189,13 +197,29 @@ for (const b of document.querySelectorAll('[data-onglet]'))
     const deja = b.getAttribute('aria-selected') === 'true';
     if (deja && b.dataset.onglet === 'historique') return ouvrirOnglet('parcours');
     if (deja && b.dataset.onglet === 'carte' && hauteur() !== 0) return regler(0);
-    ouvrirOnglet(b.dataset.onglet);
+    ouvrirOnglet(b.dataset.onglet, b.hasAttribute('data-retour-preparer') ? 'preparer' : undefined);
   });
 for (const b of document.querySelectorAll('[data-vue]')) b.addEventListener('click', () => ouvrirOnglet('parcours', b.dataset.vue));
 
 // ---------- Préparer ----------
 
 const form = $('#preparer');
+for (const bloc of [...form.querySelectorAll('details.reglage')]) {
+  for (const champ of bloc.querySelectorAll('input, select, textarea')) champ.setAttribute('form', 'preparer');
+  $('#reglages-voyage').append(bloc);
+}
+document.addEventListener('invalid', (ev) => {
+  if (ev.target.form === form && ev.target.closest('#reglages')) {
+    ouvrirOnglet('reglages');
+    const detail = ev.target.closest('details'); if (detail) detail.open = true;
+  }
+}, true);
+for (const [id, cle, defaut] of [['gps-voix', 'navigationVoix', true], ['gps-ecran', 'navigationEcran', true]]) {
+  $(`#${id}`).checked = memoire.lire(cle, defaut);
+  $(`#${id}`).onchange = (ev) => memoire.ecrire(cle, ev.target.checked);
+}
+$('#gps-vue').value = memoire.lire('navigationVue', '3d');
+$('#gps-vue').onchange = (ev) => memoire.ecrire('navigationVue', ev.target.value);
 const brouillon = memoire.lire('brouillon', {});
 const GROUPES = {
   mode: { options: { destination: 'Une destination', boucle: 'Boucle et retour', surprise: 'Surprends-moi', plein: '⛽ Avec mon plein' }, unique: true, defaut: ['destination'] },
@@ -209,10 +233,10 @@ const GROUPES = {
   // Réglages gardés d'un voyage à l'autre (pas dans le brouillon) : véhicule et appli de guidage.
   vehicule: { options: Object.fromEntries(Object.entries(VEHICULES).map(([k, v]) => [k, v.nom])), unique: true, defaut: [lireVehicule().type], reglage: true },
   carburant: { options: CARBURANTS, unique: true, defaut: [lireVehicule().carburant], reglage: true },
-  guidage: { options: [['interne', 'TerraTrack 3D'], ['organic', 'Organic Maps'], ['waze', 'Waze'], ['plans', 'Plans']], unique: true, defaut: [memoire.lire('guidage', 'interne')], reglage: true },
+  guidage: { options: [['interne', 'TerraTrack 3D'], ['waze', 'Waze'], ['plans', 'Plans']], unique: true, defaut: [memoire.lire('guidage', 'interne')], reglage: true },
 };
 for (const [nom, g] of Object.entries(GROUPES)) {
-  const zone = form.querySelector(`[data-groupe="${nom}"]`);
+  const zone = document.querySelector(`[data-groupe="${nom}"]`);
   const choisis = brouillon[nom] != null && !g.reglage ? [].concat(brouillon[nom]).map(String) : g.defaut;
   // Les clés numériques d'un objet se rangent d'elles-mêmes : un tableau garde l'ordre voulu.
   zone.innerHTML = (Array.isArray(g.options) ? g.options : Object.entries(g.options))
@@ -236,9 +260,10 @@ for (const [nom, g] of Object.entries(GROUPES)) {
       if (Number(form.elements.litresDepart.value) > v.reservoir) form.elements.litresDepart.value = v.reservoir;
     }
     if (g.reglage) majReglages();
+    else memoire.ecrire('brouillon', { ...memoire.lire('brouillon', {}), [nom]: choix(nom) });
   });
 }
-const choix = (nom) => [...form.querySelectorAll(`[data-groupe="${nom}"] [aria-pressed="true"]`)].map((p) => p.dataset.valeur);
+const choix = (nom) => [...document.querySelectorAll(`[data-groupe="${nom}"] [aria-pressed="true"]`)].map((p) => p.dataset.valeur);
 
 // Véhicule : litres au départ, consommation, prix payé, réservoir. Gardés sur le téléphone.
 const CHAMPS_VEHICULE = ['litresDepart', 'conso', 'prix', 'reservoir', 'budget'];
@@ -261,7 +286,7 @@ function majReglages() {
   majResumeVehicule();
   majPortee();
 }
-form.addEventListener('input', (ev) => {
+document.addEventListener('input', (ev) => {
   if (CHAMPS_VEHICULE.includes(ev.target.name)) majReglages();
 });
 function majResumeVehicule() {
@@ -321,12 +346,12 @@ function remplirPreparer(p) {
     niveau: [p.niveauMax ? String(p.niveauMax) : 'tous'],
   };
   for (const [nom, v] of Object.entries(valeurs))
-    for (const puce of form.querySelectorAll(`[data-groupe="${nom}"] .puce`)) puce.setAttribute('aria-pressed', String(v.map(String).includes(puce.dataset.valeur)));
+    for (const puce of document.querySelectorAll(`[data-groupe="${nom}"] .puce`)) puce.setAttribute('aria-pressed', String(v.map(String).includes(puce.dataset.valeur)));
   choisiesLieux.depart = p.depart;
   choisiesLieux.destination = p.destination;
   form.elements.depart.value = p.depart?.nom ?? '';
   form.elements.destination.value = p.destination?.nom ?? '';
-  form.elements.date.value = new Date().toISOString().slice(0, 10);
+  form.elements.date.value = dateLocale();
   majMode();
 }
 
@@ -335,11 +360,40 @@ const communes = [...pack.communes].sort(
   (a, b) => ['city', 'town', 'village', 'hamlet'].indexOf(a.type) - ['city', 'town', 'village', 'hamlet'].indexOf(b.type),
 );
 const choisiesLieux = { depart: brouillon.depart ?? null, destination: brouillon.destination ?? null };
+let demandeDepart = 0;
+async function recupererDepartGps() {
+  const point = natif ? (await TerrainNatif.positionActuelle()).point : await new Promise((resolu, rejete) => {
+    if (!navigator.geolocation) return rejete(new Error('Localisation indisponible sur cet appareil.'));
+    navigator.geolocation.getCurrentPosition(({ coords, timestamp }) => resolu([timestamp, coords.latitude, coords.longitude, coords.accuracy]),
+      (e) => rejete(new Error(e.code === 1 ? 'Localisation refusée. Choisissez une commune ou autorisez le GPS.' : 'Position indisponible. Réessayez ou choisissez une commune.')),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+  const p = lirePoint(point);
+  if (!positionRecente(p)) throw new Error('Position trop ancienne ou imprécise. Réessayez.');
+  return { id: 'depart-gps', nom: 'Ma position', lat: p.lat, lon: p.lon, origine: 'gps', quand: p.quand, precision: p.precision };
+}
+$('#depart-gps').onclick = async () => {
+  const numero = ++demandeDepart;
+  const bouton = $('#depart-gps'), message = $('#depart-gps-etat');
+  bouton.disabled = true; message.hidden = false; message.textContent = 'Recherche de votre position…';
+  try {
+    const p = await recupererDepartGps();
+    if (numero !== demandeDepart) return;
+    choisiesLieux.depart = p;
+    form.elements.depart.value = 'Ma position';
+    form.elements.depart.nextElementSibling.hidden = true;
+    message.textContent = `Départ à votre position · précision ±${Math.round(p.precision)} m`;
+    carte.afficherPosition(p); majPortee();
+    memoire.ecrire('brouillon', { ...memoire.lire('brouillon', {}), depart: choisiesLieux.depart });
+  } catch (e) { if (numero === demandeDepart) message.textContent = e.message; }
+  finally { bouton.disabled = false; }
+};
 function autocompletion(nom) {
   const champ = form.elements[nom];
   const liste = champ.nextElementSibling;
   champ.value = choisiesLieux[nom]?.nom ?? '';
   champ.addEventListener('input', () => {
+    if (nom === 'depart') { demandeDepart++; $('#depart-gps-etat').hidden = true; }
     choisiesLieux[nom] = null;
     const q = simplifier(champ.value.trim());
     if (q.length < 2) return (liste.hidden = true);
@@ -358,12 +412,13 @@ function autocompletion(nom) {
 }
 autocompletion('depart');
 autocompletion('destination');
-form.elements.date.value = brouillon.date ?? new Date().toISOString().slice(0, 10);
+form.elements.date.value = brouillon.date ?? dateLocale();
 if (brouillon.heure) form.elements.heure.value = brouillon.heure;
 majMode();
 
 form.addEventListener('submit', async (ev) => {
   ev.preventDefault();
+  const ancienPlan = plan;
   const erreur = $('#erreur-preparer');
   const mode = choix('mode')[0];
   const p = {
@@ -382,17 +437,20 @@ form.addEventListener('submit', async (ev) => {
     favoris: lieuxPourPlusTard().map((l) => l.id),
     exclus: [...dejaVus.keys(), ...effetDesNotes().ecartes],
     bonusParType: effetDesNotes().bonusParType,
+    conditionsStrictes: true,
+    vehicule: vehiculeCalcul(),
   };
+  if (p.depart?.origine === 'gps') {
+    try { p.depart = choisiesLieux.depart = await recupererDepartGps(); }
+    catch (e) { return montrerErreur(erreur, e.message); }
+  }
   memoire.ecrire('brouillon', { ...p, envies: choix('envies'), mode, jours: String(p.jours), heure: form.elements.heure.value, niveau: choix('niveau')[0] });
-  if (!p.depart) return montrerErreur(erreur, 'Choisis ta commune de départ dans la liste.');
+  if (!p.depart) return montrerErreur(erreur, 'Choisis un départ ou utilise ta position GPS.');
   if (mode === 'destination' && !p.destination) return montrerErreur(erreur, 'Choisis ta destination dans la liste.');
   erreur.hidden = true;
   // Un voyage fait (premier jour avant aujourd'hui) est rangé dans l'historique avant d'être remplacé ;
   // refaire le parcours le jour même, avant de partir, ne remplit pas l'historique.
-  if (plan?.valide && plan.jours[0].date < new Date().toISOString().slice(0, 10)) archiver(plan);
-  trace = [];
-  memoire.ecrire('trace', trace);
-  carte.afficherTrace(trace);
+  if (plan?.valide && plan.jours[0].date < dateLocale()) archiver(plan);
   // « Beau temps » : la météo des jours du voyage tout autour du départ, avant de choisir où aller.
   if (p.veutBeauTemps) {
     const bouton = form.querySelector('button[type=submit]');
@@ -404,7 +462,10 @@ form.addEventListener('submit', async (ev) => {
     const dates = Array.from({ length: Math.max(1, Math.round(p.jours)) }, (_, i) => ajouterJoursIso(p.date, i));
     if (portee && (await chargerMeteo(grilleAutour(p.depart, portee)).catch(() => false) || coefficientBeauTemps(p.depart.lat, p.depart.lon, dates) != null))
       p.beauTemps = (l) => coefficientBeauTemps(l.lat, l.lon, dates);
-    else if (portee) afficherToast('☀️ Beau temps : pas de prévisions sans réseau, je fais comme d’habitude.');
+    else if (portee) {
+      bouton.textContent = 'Découvrir mon parcours';
+      return montrerErreur(erreur, 'Le beau temps demandé n’est pas vérifiable. Revoir les conditions dans Préparer.');
+    }
     bouton.textContent = 'Découvrir mon parcours';
   }
   const calculer = (extra = {}) => {
@@ -419,6 +480,7 @@ form.addEventListener('submit', async (ev) => {
   try {
     plan = calculer();
   } catch (e) {
+    plan = ancienPlan;
     return montrerErreur(erreur, e.message);
   }
   // Avec du réseau : la météo du trajet (16 jours au plus), puis le parcours refait en en tenant compte.
@@ -434,6 +496,19 @@ form.addEventListener('submit', async (ev) => {
   }
   bouton.disabled = false;
   bouton.textContent = 'Découvrir mon parcours';
+  plan.params.meteoCompatible = !p.veutBeauTemps || plan.jours.every((j) => [j.debut, ...j.etapes, j.fin].every((l) => {
+    const m = meteoJournee(l.lat, l.lon, j.date);
+    return Boolean(m && !risques(m).pluie && !risques(m).orage && !risques(m).neige);
+  }));
+  const compatibles = comparerItineraires(pack, plan, p.vehicule);
+  if (!compatibles.length) {
+    const raisons = verifierConditions(plan, p.vehicule);
+    plan = ancienPlan;
+    return montrerErreur(erreur, 'Aucun itinéraire ne respecte toutes les conditions. Revoir les conditions dans Préparer. ' + raisons.join(' '));
+  }
+  plan.jours = compatibles[0].jours;
+  plan.params.optionsItineraire = compatibles[0].options;
+  trace = []; memoire.ecrire('trace', trace); carte.afficherTrace(trace);
   carte.afficherPortee(null);
   jourActif = 0;
   enregistrer();
@@ -443,7 +518,15 @@ form.addEventListener('submit', async (ev) => {
 function montrerErreur(zone, texte) {
   zone.textContent = texte;
   zone.hidden = false;
+  if (/conditions|compatible/.test(texte)) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'lien';
+    b.textContent = 'Revoir Préparer'; b.dataset.revoirPreparer = ''; zone.append(document.createElement('br'), b);
+  }
+  zone.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
+document.addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-revoir-preparer]')) ouvrirOnglet('parcours', 'preparer');
+});
 
 // ---------- Le parcours ----------
 
@@ -619,11 +702,12 @@ let comparaison = { cle: null, liste: [] };
 function blocItineraires() {
   if (!plan?.jours?.[0]?.profil || plan.jours.every((j) => j.metres < 2000)) return '';
   // Mêmes étapes et mêmes nuits : la comparaison ne se refait pas à chaque affichage.
-  const cle = JSON.stringify(plan.jours.map((j) => [j.debut.lat, j.debut.lon, j.etapes.map((e) => e.id), j.fin.id]));
+  const cle = JSON.stringify([plan.params, plan.jours.map((j) => [j.debut.lat, j.debut.lon, j.etapes.map((e) => e.id), j.fin.id])]);
   if (comparaison.cle !== cle) comparaison = { cle, liste: comparerItineraires(pack, plan) };
-  const v = vehiculeCalcul();
+  const v = plan.params.vehicule ?? vehiculeCalcul();
   const tarif = TARIF_PEAGE[v.type] ?? 0.1;
-  const actuel = ITINERAIRES.find((i) => i.options.eviterPeages === Boolean(plan.params.eviterPeages) && i.options.economie === Boolean(plan.params.economie))?.cle;
+  const optionsActuelles = plan.params.optionsItineraire ?? plan.params;
+  const actuel = comparaison.liste.find((i) => i.options.eviterPeages === Boolean(optionsActuelles.eviterPeages) && i.options.economie === Boolean(optionsActuelles.economie))?.cle;
   const confirme = Boolean(plan.params.itineraireChoisi);
   const lignes = comparaison.liste.map((it) => {
     const litres = (it.equivalents * v.conso) / 100;
@@ -631,9 +715,10 @@ function blocItineraires() {
     return { ...it, litres, carburant: litres * v.prix, peage, total: litres * v.prix + peage };
   });
   const moinsCher = Math.min(...lignes.map((l) => l.total));
+  if (!lignes.length) return '<div class="alerte">Aucun itinéraire compatible avec les conditions de Préparer. <button type="button" class="lien" data-revoir-preparer>Revoir Préparer</button></div>';
   return `
     <div class="encadre">
-      <div class="nom">🛣️ Trois façons de faire ce voyage</div>
+      <div class="nom">Itinéraires compatibles avec Préparer</div>
       ${lignes
         .map(
           (l) => `
@@ -649,13 +734,14 @@ function blocItineraires() {
 }
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-itineraire]');
-  const choix = b && ITINERAIRES.find((i) => i.cle === b.dataset.itineraire);
+  const choix = b && comparaison.liste.find((i) => i.cle === b.dataset.itineraire);
   if (!choix || !plan) return;
   // Le changement de route ne doit pas recocher les arrêts que l'on vient d'écarter.
   const cleChoix = (c) => [c.dataset.cr, c.dataset.j ?? '', c.dataset.id ?? '', c.dataset.i ?? '', c.name].join('|');
   const selection = plan.valide === false ? new Map([...$('#parcours').querySelectorAll('[data-cr]')].map((c) => [cleChoix(c), c.checked])) : null;
   const joursOuverts = [...$('#parcours').querySelectorAll('.jour-choix')].map((j) => j.open);
-  choisirItineraire(pack, plan, choix.options);
+  try { choisirItineraire(pack, plan, choix.options); }
+  catch (e) { afficherToast(e.message); return; }
   enregistrer();
   if (selection) {
     for (const c of $('#parcours').querySelectorAll('[data-cr]')) if (selection.has(cleChoix(c))) c.checked = selection.get(cleChoix(c));
@@ -742,6 +828,7 @@ function rendreCompteRendu(zone) {
 /** Applique les choix du compte rendu, recalcule, et marque le parcours comme validé. */
 function validerCompteRendu() {
   const zone = $('#parcours');
+  if (!plan.params.itineraireChoisi) { afficherToast('Choisissez un itinéraire compatible avant de valider.'); return; }
   const gardes = new Set([...zone.querySelectorAll('[data-cr="etape"]:checked')].map((c) => c.dataset.id));
   garderEtapes(pack, plan, gardes);
   for (const radio of zone.querySelectorAll('[data-cr="nuit"]:checked')) {
@@ -759,6 +846,8 @@ function validerCompteRendu() {
   const alternatives = [...zone.querySelectorAll('[data-cr="alternative"]:checked')].map((c) => plan.alternatives[Number(c.dataset.i)]);
   for (const a of alternatives) ajouterEtape(pack, plan, a.jour, a);
   plan.alternatives = (plan.alternatives ?? []).filter((a) => !alternatives.includes(a));
+  const problemes = verifierConditions(plan);
+  if (problemes.length) { afficherToast('Revoir Préparer : ' + problemes.join(' ')); rendreParcours(); return; }
   plan.valide = true;
   plan.valideLe = Date.now();
   enregistrer();
@@ -810,7 +899,7 @@ function rendreJour(j, i) {
       ${!j.etapes.length && j.fin.surPlace ? `<small class="info fait-avant">🏕️ Journée sur place autour de ${h(j.debut.nom)} : repos, balades, et les boutons « En route » pour trouver quoi faire.</small>` : ''}
       ${j.faites?.length ? `<small class="info fait-avant">✓ Déjà fait : ${h(j.faites.map((e) => e.nom).join(', '))}</small>` : ''}
       ${etapes}
-      <div class="actions jour-actions"><button type="button" data-action="kml" data-j="${i}">📤 Envoyer la journée à Organic Maps</button></div>
+      <div class="actions jour-actions"><button type="button" data-action="kml" data-j="${i}">📤 Exporter la journée (KML)</button></div>
       <div class="etape nuit">
         <div class="h">${heure(fin.arriveeMin)}</div>
         <div>
@@ -827,15 +916,39 @@ function rendreJour(j, i) {
 }
 
 /**
- * Guidage jusqu'au point par une appli de navigation. Organic Maps fonctionne hors ligne (cartes
- * téléchargées dans l'appli) ; son itinéraire part de la position connue, sinon il montre le point.
+ * Le guidage intégré conserve le choix d'itinéraire ; les GPS externes restent optionnels.
  */
-const NOMS_GUIDAGE = { interne: 'TerraTrack 3D', organic: 'Organic Maps', waze: 'Waze', plans: 'Plans' };
+const NOMS_GUIDAGE = { interne: 'TerraTrack 3D', waze: 'Waze', plans: 'Plans' };
 const guidagePrefere = () => memoire.lire('guidage', 'interne');
 async function guider(appli, cible) {
   if (appli === 'interne') {
     const jour = plan?.jours[jourActif];
     return navigation.demarrer(cible, {
+      conditionsPreparees: Boolean(plan?.valide),
+      verifierTrajet(t) {
+        if (!plan?.valide || !jour) return [];
+        const problemes = verifierConditions(plan);
+        const restantes = jour.etapes.filter((e) => !etapesFaites().has(e.id));
+        const prochaine = restantes[0] ?? jour.fin;
+        if (distanceKm(cible, prochaine) > 0.1) problemes.push('Cette destination ne correspond pas à la prochaine étape du voyage préparé.');
+        if (!positionRecente(position)) return [...problemes, 'Une position GPS récente est nécessaire.'];
+        const suite = itineraireMulti(pack.graphe, [cible, ...restantes.slice(1), jour.fin], { eviterPeages: Boolean(plan.params.eviterPeages || jour.eviterPeages), economie: Boolean(jour.economie) });
+        if (!suite) return [...problemes, 'La suite du voyage est injoignable.'];
+        const av = avancerSurFeuille(jour, position, etapesFaites());
+        const conduiteFaite = av.totalKm > 0 ? jour.conduiteMin * av.faitKm / av.totalKm : 0;
+        const limite = (RYTHMES[plan.params.rythme] ?? RYTHMES.normal).conduiteH * 60 * (plan.params.jours < 1 ? plan.params.jours : 1);
+        if (conduiteFaite + (t.secondes + suite.secondes) / 60 > limite + 1) problemes.push('Ce trajet dépasse le temps de conduite choisi.');
+        const v = plan.params.vehicule ?? vehiculeCalcul();
+        const ancien = itineraireMulti(pack.graphe, [position, cible], { eviterPeages: Boolean(jour.eviterPeages), economie: Boolean(jour.economie) });
+        if (ancien) {
+          const equivalentAvant = profilConso(ancien.coords, ancien.vitesses).at(-1)?.[1] ?? 0;
+          const bilan = bilanCarburant(plan.jours, v);
+          const litres = bilan.litres + ((t.equivalents ?? t.metres / 1000 * 1.2) - equivalentAvant) * v.conso / 100;
+          if (v.budget > 0 && litres * v.prix > v.budget + 0.01) problemes.push('Ce trajet dépasse le budget carburant.');
+          if (plan.params.mode === 'plein' && litres > v.litresDepart - bilan.reserveL) problemes.push('Ce trajet dépasse le carburant disponible.');
+        } else problemes.push('Impossible de vérifier le carburant de ce trajet.');
+        return problemes;
+      },
       parcoursDisponible: Boolean(jour?.coords?.length),
       eviterPeages: Boolean(jour?.eviterPeages),
       passages(depart, arrivee) {
@@ -853,12 +966,6 @@ async function guider(appli, cible) {
   // Le bouton principal mène à l'étape choisie ; les passages intermédiaires restent dans le KML.
   const point = cible;
   const n = encodeURIComponent(point.nom || 'Étape');
-  if (appli === 'organic') {
-    location.href = position
-      ? `om://route?sll=${position.lat},${position.lon}&saddr=${encodeURIComponent('Ma position')}&dll=${point.lat},${point.lon}&daddr=${n}&type=vehicle`
-      : `om://map?ll=${point.lat},${point.lon}&n=${n}`;
-    return;
-  }
   window.open(appli === 'waze' ? `https://waze.com/ul?ll=${point.lat},${point.lon}&navigate=yes` : `https://maps.apple.com/?daddr=${point.lat},${point.lon}&q=${n}&dirflg=d`, '_blank');
 }
 const libelleGuidage = () => guidagePrefere() === 'interne' ? 'Choisir mon itinéraire' : 'Continuer avec ' + NOMS_GUIDAGE[guidagePrefere()];
@@ -973,7 +1080,8 @@ let etatSuivi = { actif: false, demande: false };
 let lectureEnCours = false;
 let dernierPointTrace = 0;
 const navigation = creerNavigation({ carte, obtenirPosition: () => position, gpsActif: () => etatSuivi.actif,
-  activerGps: activerSuivi, natif, terrainNatif: TerrainNatif });
+  activerGps: activerSuivi, natif, terrainNatif: TerrainNatif,
+  revoirPreparer: () => ouvrirOnglet('parcours', 'preparer') });
 carte.pret.then(() => carte.afficherTrace(trace));
 
 function heureDuTelephone() {
@@ -1199,7 +1307,7 @@ document.addEventListener('click', (ev) => {
   recaler('Imprévu');
   relancerGuidage();
 });
-/** Le guidage (Organic Maps…) repart de la position vers la nouvelle prochaine étape. */
+/** Reprend le choix du guidage vers la prochaine étape. */
 function relancerGuidage() {
   if (prochaineEtape) setTimeout(() => guider(guidagePrefere(), prochaineEtape), 1200);
 }
@@ -1300,7 +1408,7 @@ $('#plein').addEventListener('close', () => {
   afficherToast(litres > 0 ? `⛽ ${litres} L notés${prix > 0 ? ` (${euros(litres * prix)})` : ''}.` : '⛽ Plein complet noté.');
 });
 
-// ---------- La journée dans Organic Maps (fichier KML : étapes, nuit et tracé) ----------
+// ---------- Export KML : étapes, nuit et tracé ----------
 
 const xml = (t) => String(t ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
 async function envoyerJournee(j) {
@@ -1328,7 +1436,7 @@ ${elements.join('\n')}
 </Document></kml>`;
   const nom = `TerraTrack-jour-${j + 1}.kml`;
   if (natif) {
-    afficherToast('Choisis « Organic Maps » : la journée y arrive en favoris, avec le tracé et les points de passage.');
+    afficherToast('Exporter le tracé et les étapes de la journée au format KML.');
     await TerrainNatif.partager({ nom, contenu: kml }).catch((e) => alert(e.message));
     return;
   }
@@ -1540,7 +1648,6 @@ const nomDe = (l) => l.nom || l.type;
 const allerA = (l) => [
   'Y aller',
   [
-    { texte: '🧭 Organic Maps', faire: () => guider('organic', l) },
     { texte: '🧭 TerraTrack 3D', faire: () => guider('interne', l) },
     { texte: '🧭 Waze', faire: () => guider('waze', l) },
     { texte: '🗺️ Plans', faire: () => guider('plans', l) },

@@ -41,7 +41,7 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Pendant ton voyage, TerraTrack suit ton trajet en arrière-plan : étapes faites, avancée, carburant. Le guidage intégré envoie ta position et ta destination au service de calcul OSRM quand tu le lances.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TerraTrack utilise ta position pour te proposer des pauses, des lieux à découvrir, de quoi manger et où dormir le long de ta route, même sans réseau.</string>
+	<string>TerraTrack utilise ta position pour partir de l’endroit où tu es et suivre réellement ton trajet. Le calcul du guidage intégré transmet le départ et la destination au service OSRM.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

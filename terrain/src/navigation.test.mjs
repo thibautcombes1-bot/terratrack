@@ -46,6 +46,18 @@ test('hors du trajet, aucune annonce de virage ou estimation d’arrivée n’es
   assert.equal(etat.secondes, undefined);
 });
 
+test('un départ à côté de la route garde le GPS réel et attend le tracé sans inventer une progression', () => {
+  const t = lireGuidage(reponse, cible);
+  const p = position(43.999,3);
+  const etat = suivreGuidage(t, p, null, maintenant);
+  assert.equal(etat.genre, 'rejoindre');
+  assert.equal(etat.position, p);
+  assert.equal(etat.progression, 0);
+  assert.equal(etat.secondes, undefined);
+  assert.ok(etat.distance > 100 && etat.distance < 120);
+  assert.equal(suivreGuidage(t,p,{progression:0,genre:'direct'},maintenant).genre,'hors-route');
+});
+
 test('un croisement revisité ne fait pas sauter une boucle', () => {
   const points = [[3,44],[3,44.01],[3.01,44.01],[3.01,44],[3,44],[3,43.999]];
   const t = lireGuidage({ code: 'Ok', routes: [{ legs: [{ steps: [etape('depart','straight',points,''), etape('arrive','straight',[points.at(-1)],'')] }] }] }, { lat: 43.999, lon: 3 });

@@ -5,7 +5,7 @@ import { distanceKm } from '../../commun/geo.js';
 import { detours, itineraire, itineraireMulti } from '../../commun/routeur.js';
 import { decouperJours, preparerRoute, rectangle, situer } from '../../server/itineraire.js';
 import { ajouterJours } from './outils.js';
-import { kmDansLaJournee, profilConso } from '../../commun/carburant.js';
+import { bilanCarburant, kmDansLaJournee, profilConso } from '../../commun/carburant.js';
 import { coucherSoleil } from './soleil.js';
 
 export const ENVIES = {
@@ -231,6 +231,7 @@ export function recalculerJour(pack, jour, conduiteMaxH) {
   const options = { eviterPeages: Boolean(jour.eviterPeages), economie: Boolean(jour.economie) };
   const trajet = itineraireMulti(g, points, options);
   if (!trajet) {
+    jour.coords = []; jour.metres = Infinity; jour.conduiteMin = Infinity; jour.profil = [];
     jour.alertes = ['Une étape est injoignable par la route depuis le parcours.'];
     return jour;
   }
@@ -292,7 +293,7 @@ export function planifier(pack, p) {
   const ancres = boucle ? [p.depart, cible, p.depart] : [p.depart, cible];
   const directKm = longueurTournee(ancres);
   // Une destination (ou un coin) lointaine : le trajet direct passe avant, plus de quoi faire des étapes.
-  budgetKm = Math.max(budgetKm, directKm * 1.2 + 40);
+  budgetKm = Math.min(p.kmMax ?? Infinity, Math.max(budgetKm, directKm * 1.2 + 40));
   // Où chercher : l'ellipse des lieux joignables dans le budget (départ, coin, arrivée comme foyers).
   const margeKm = Math.max(10, (budgetKm - directKm) / (2 * KM_ROUTE));
   const dansZone = rectangle(ancres.map((a) => [a.lon, a.lat]), margeKm);
@@ -316,6 +317,7 @@ export function planifier(pack, p) {
     if (!l.nom || (l.categorie !== 'decouvrir' && !l.activite && !favoris.has(l.id)) || !dansZone(l) || exclus.has(l.id) || distanceKm(p.depart, l) < 1) continue;
     // Un lieu gardé « pour plus tard » passe avant les envies et le niveau, s'il est joignable.
     if (favoris.has(l.id)) {
+      if (p.conditionsStrictes && (!aMonNiveau(l, p.niveauMax) || (p.envies.length && !plaitA(l, p.envies)))) continue;
       if (joignable(l)) favorisAPortee.push({ ...l, favori: true, valeur: 20, score: 10, dureeH: dureeVisite(l) / 60 });
       continue;
     }
@@ -325,6 +327,7 @@ export function planifier(pack, p) {
     // Une activité qu'on n'a pas choisie ne remplit pas la journée à la place des visites.
     if (ACTIVITES.has(l.activite) && !p.envies.includes(l.activite)) continue;
     if (!aMonNiveau(l, p.niveauMax) || !joignable(l)) continue;
+    if (p.conditionsStrictes && p.niveauMax && l.activite && !l.niveauRang) continue;
     // Ce qui est coché est un filtre strict : seulement des lieux qui y répondent (les autres en idées).
     if (p.envies.length && !plaitA(l, p.envies)) {
       if (interet(l) >= 2.4) autres.push(l);
@@ -353,8 +356,8 @@ export function planifier(pack, p) {
   // Chaque activité cochée doit apparaître si elle est joignable : sa meilleure étape passe en priorité.
   const avertissements = [];
   const prioritaires = [...favorisAPortee];
-  for (const envie of p.envies.filter((e) => ACTIVITES.has(e) || e === 'unesco')) {
-    const repond = (c) => c.activite === envie || (envie === 'unesco' && c.unesco);
+  for (const envie of p.envies) {
+    const repond = (c) => repondA(c, envie);
     const meilleur = meilleurs.find(repond);
     if (meilleur) prioritaires.push(meilleur);
     else
@@ -374,7 +377,7 @@ export function planifier(pack, p) {
   // proposés (pas imposés), une idée par portion du voyage.
   const alternatives = [];
   const route = preparerRoute(tournee.map((t) => [t.lon, t.lat]));
-  if (p.envies.length && choisis.length < nbEtapes) {
+  if (!p.conditionsStrictes && p.envies.length && choisis.length < nbEtapes) {
     const pres = autres
       .map((l) => ({ l, sit: situer(route, l) }))
       .filter(({ sit }) => sit.ecart <= 15)
@@ -444,6 +447,27 @@ export function planifier(pack, p) {
     jours.push(jour);
     debut = { nom: finJour.nom, lat: finJour.lat, lon: finJour.lon };
   });
+  // Les vraies routes peuvent dépasser l'estimation géométrique : retirer les détours
+  // optionnels, sans supprimer la dernière visite d'une journée ou une envie demandée.
+  if (Number.isFinite(p.kmMax)) {
+    const limiteReelle = p.kmMax * (p.conditionsStrictes ? 1 : 1.15);
+    while (jours.reduce((s, j) => s + j.metres, 0) / 1000 > limiteReelle) {
+      const toutes = jours.flatMap((j) => j.etapes);
+      const possibles = jours.flatMap((j, i) => j.etapes.length > 1 ? j.etapes.map((e) => ({ e, j, i })) : [])
+        .filter(({ e }) => (p.envies ?? []).every((envie) => !repondA(e, envie) || toutes.some((autre) => autre !== e && repondA(autre, envie))))
+        .sort((a, b) => (b.e.detourMin ?? 0) - (a.e.detourMin ?? 0) || (a.e.score ?? 0) - (b.e.score ?? 0));
+      if (!possibles.length) break;
+      const { e, j, i } = possibles[0];
+      j.etapes.splice(j.etapes.indexOf(e), 1);
+      if (i < jours.length - 1) {
+        const pres = j.etapes.at(-1) ?? j.debut;
+        j.fin = p.nuits.includes('debrouille') ? nuitLibre(pack, pres) : choisirNuit(pack, pres, p.nuits, new Set()) ?? j.fin;
+        jours[i + 1].debut = { nom: j.fin.nom, lat: j.fin.lat, lon: j.fin.lon };
+        recalculerJour(pack, jours[i + 1], rythme.conduiteH);
+      }
+      recalculerJour(pack, j, rythme.conduiteH);
+    }
+  }
   // Chaque alternative est rattachée au jour où elle tombe sur le trajet.
   for (const a of alternatives) {
     const j = groupes.findIndex((g) => g.length && g.at(-1).cle >= a.cle);
@@ -585,6 +609,7 @@ export function surLeTrajet(pack, plan) {
   const voulues = Object.entries(NUITS)
     .filter(([cle]) => plan.params.nuits.includes(cle))
     .flatMap(([, n]) => n.types);
+  const nuitCompatible = (l) => !plan.params.conditionsStrictes || plan.params.nuits.includes('debrouille') || voulues.includes(l.type);
   return plan.jours.map((j) => {
     const coords = j.coords.length > 1 ? j.coords : [[j.debut.lon, j.debut.lat], [j.fin.lon, j.fin.lat]];
     const route = preparerRoute(coords);
@@ -598,13 +623,13 @@ export function surLeTrajet(pack, plan) {
       .sort((a, b) => a.sit.s - b.sit.s)
       .map(({ l, sit }) => ({ ...resume(l), kmDepuisDepart: Math.round(sit.s), ecartKm: Math.round(sit.ecart * 10) / 10 }));
     // Toujours des nuits gratuites dans les propositions (en premier), puis celles du type choisi.
-    const gratuites = j.fin.genre === 'nuit' ? nuitsGratuites(pack, j.fin, { exclus: new Set([j.fin.id]) }) : [];
+    const gratuites = j.fin.genre === 'nuit' ? nuitsGratuites(pack, j.fin, { exclus: new Set([j.fin.id]) }).filter(nuitCompatible) : [];
     const nuits =
       j.fin.genre === 'nuit'
         ? [
             ...gratuites,
             ...pack.lieux
-              .filter((l) => l.categorie === 'dormir' && l.nom && l.id !== j.fin.id && !gratuites.some((g) => g.id === l.id) && distanceKm(j.fin, l) < 12)
+              .filter((l) => l.categorie === 'dormir' && nuitCompatible(l) && l.nom && l.id !== j.fin.id && !gratuites.some((g) => g.id === l.id) && distanceKm(j.fin, l) < 12)
               .sort((a, b) => (voulues.includes(b.type) - voulues.includes(a.type)) || distanceKm(j.fin, a) - distanceKm(j.fin, b))
               .slice(0, 3)
               .map((l) => ({ ...resume(l), distanceKm: Math.round(distanceKm(j.fin, l) * 10) / 10 })),
@@ -613,7 +638,7 @@ export function surLeTrajet(pack, plan) {
     // Et au moins un hôtel, gîte ou chambre d'hôte, s'il y en a un à moins de 15 km.
     if (j.fin.genre === 'nuit' && !CONFORT.has(j.fin.type) && !nuits.some((l) => CONFORT.has(l.type))) {
       const lit = pack.lieux
-        .filter((l) => l.categorie === 'dormir' && l.nom && CONFORT.has(l.type) && Math.abs(l.lat - j.fin.lat) < 0.15 && Math.abs(l.lon - j.fin.lon) < 0.2)
+        .filter((l) => l.categorie === 'dormir' && nuitCompatible(l) && l.nom && CONFORT.has(l.type) && Math.abs(l.lat - j.fin.lat) < 0.15 && Math.abs(l.lon - j.fin.lon) < 0.2)
         .map((l) => ({ l, d: distanceKm(j.fin, l) }))
         .filter((x) => x.d < 15)
         .sort((a, b) => a.d - b.d)[0];
@@ -715,14 +740,66 @@ export const ITINERAIRES = [
   { cle: 'econome', nom: 'Économe en carburant', options: { eviterPeages: true, economie: true } },
 ];
 
+/** Les conditions explicites ne sont jamais assouplies pour remplir une proposition. */
+export function verifierConditions(plan, vehicule = plan.params?.vehicule) {
+  const p = plan.params ?? {};
+  const jours = plan.jours ?? [], problemes = [];
+  const ajouter = (texte) => { if (!problemes.includes(texte)) problemes.push(texte); };
+  if (!jours.length) return ['Aucun trajet calculé.'];
+  const nbJours = p.jours <= 1 ? 1 : Math.round(p.jours);
+  if (jours.length !== nbJours) ajouter('La durée demandée n’est pas respectée.');
+  const etapes = jours.flatMap((j) => j.etapes ?? []);
+  for (const envie of p.envies ?? []) if (!etapes.some((e) => plaitA(e, [envie])))
+    ajouter(`Aucune étape correspondant à « ${ENVIES[envie] ?? envie} ».`);
+  if (etapes.some((e) => (p.exclus ?? []).includes(e.id))) ajouter('Un lieu exclu figure encore dans le voyage.');
+  const nuits = (p.nuits ?? []).flatMap((cle) => NUITS[cle]?.types ?? []);
+  const limite = (RYTHMES[p.rythme] ?? RYTHMES.normal).conduiteH * 60 * (p.jours < 1 ? p.jours : 1);
+  jours.forEach((j, i) => {
+    if (!Array.isArray(j.coords) || !j.coords.length || !Number.isFinite(j.conduiteMin)) ajouter(`Jour ${i + 1} : trajet routier introuvable.`);
+    if (j.date !== ajouterJours(p.date, i)) ajouter('Les dates demandées ne sont pas respectées.');
+    if (j.conduiteMin > limite + 1) ajouter(`Jour ${i + 1} : temps de conduite supérieur au rythme choisi.`);
+    if (p.eviterPeages && j.peage) ajouter('Une route à péage ne respecte pas votre choix.');
+    if (i === 0 && j.heureDepart !== p.heure) ajouter('L’heure de départ choisie n’est pas respectée.');
+    if (j.fin?.arriveeMin >= 1440) ajouter(`Jour ${i + 1} : arrivée après la journée prévue.`);
+    for (const e of j.etapes ?? []) {
+      if (p.envies?.length && (!e.categorie || e.categorie === 'decouvrir' || e.activite) && !plaitA(e, p.envies)) ajouter('Une étape ne correspond pas aux envies choisies.');
+      if (p.niveauMax && e.activite && (!e.niveauRang || e.niveauRang > p.niveauMax))
+        ajouter('Le niveau demandé n’est pas vérifiable ou est dépassé pour une activité.');
+    }
+    if (i < jours.length - 1 && !p.nuits?.includes('debrouille') && (j.fin?.aTrouver || !nuits.includes(j.fin?.type)))
+      ajouter(`Jour ${i + 1} : aucun hébergement du type demandé.`);
+  });
+  if (p.depart && distanceKm(p.depart, jours[0].debut) > 0.02) ajouter('Le départ choisi n’est pas conservé.');
+  const fin = p.mode === 'destination' ? p.destination : p.depart;
+  if (fin && distanceKm(fin, jours.at(-1).fin) > 0.05) ajouter('L’arrivée ou le retour demandé n’est pas conservé.');
+  if (p.veutBeauTemps && p.meteoCompatible !== true) ajouter('Le beau temps demandé ne peut pas être confirmé avec les prévisions disponibles.');
+  if (vehicule?.conso > 0) {
+    const bilan = bilanCarburant(jours, vehicule);
+    if (vehicule.budget > 0 && bilan.cout > vehicule.budget + 0.01) ajouter('Le budget carburant est dépassé.');
+    if (p.mode === 'plein' && bilan.alerte) ajouter('Le voyage dépasse le carburant disponible avec sa réserve.');
+  }
+  return problemes;
+}
+
+function varianteDuVoyage(pack, plan, options) {
+  const variante = { ...plan, params: { ...plan.params }, jours: plan.jours.map((j) => ({ ...j,
+    debut: { ...j.debut }, fin: { ...j.fin }, etapes: j.etapes.map((e) => ({ ...e })), ...options })) };
+  for (const j of variante.jours) recalculerJour(pack, j, conduiteMax(plan));
+  return variante;
+}
+
 /** Pour chaque façon : km, temps de route, km à péage, km « équivalents carburant ». */
-export function comparerItineraires(pack, plan) {
-  return ITINERAIRES.map(({ cle, nom, options }) => {
+export function comparerItineraires(pack, plan, vehicule = plan.params.vehicule) {
+  const vus = new Set();
+  return ITINERAIRES.map(({ cle, nom, options: base }) => {
+    const options = { ...base, eviterPeages: Boolean(plan.params.eviterPeages || base.eviterPeages) };
+    const variante = varianteDuVoyage(pack, plan, options);
+    if (plan.params.conditionsStrictes && verifierConditions(variante, vehicule).length) return null;
     let metres = 0;
     let secondes = 0;
     let metresPeage = 0;
     let equivalents = 0;
-    for (const j of plan.jours) {
+    for (const j of variante.jours) {
       const t = itineraireMulti(pack.graphe, [j.debut, ...j.etapes, j.fin], options);
       if (!t) return null;
       metres += t.metres;
@@ -730,20 +807,22 @@ export function comparerItineraires(pack, plan) {
       metresPeage += t.metresPeage;
       equivalents += profilConso(t.coords, t.vitesses).at(-1)?.[1] ?? 0;
     }
-    return { cle, nom, options, metres, secondes, metresPeage, equivalents };
+    const empreinte = JSON.stringify(variante.jours.map((j) => j.coords));
+    if (vus.has(empreinte)) return null;
+    vus.add(empreinte);
+    return { cle, nom: cle === 'rapide' && plan.params.eviterPeages ? 'Rapide sans péage' : nom, options, metres, secondes, metresPeage, equivalents, jours: variante.jours };
   }).filter(Boolean);
 }
 
 /** Refait tout le voyage avec la façon choisie. */
 export function choisirItineraire(pack, plan, options) {
+  options = { ...options, eviterPeages: Boolean(plan.params.eviterPeages || options.eviterPeages) };
+  const variante = varianteDuVoyage(pack, plan, options);
+  const problemes = plan.params.conditionsStrictes ? verifierConditions(variante) : [];
+  if (problemes.length) throw new Error('Aucun itinéraire compatible. Revoir les conditions dans Préparer. ' + problemes.join(' '));
   plan.params.itineraireChoisi = true;
-  plan.params.eviterPeages = options.eviterPeages;
-  plan.params.economie = options.economie;
-  for (const j of plan.jours) {
-    j.eviterPeages = options.eviterPeages;
-    j.economie = options.economie;
-    recalculerJour(pack, j, conduiteMax(plan));
-  }
+  plan.params.optionsItineraire = options;
+  plan.jours = variante.jours;
 }
 
 // ---------- La tournée : course d'orientation ----------

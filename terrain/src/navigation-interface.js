@@ -4,7 +4,7 @@ import { positionRecente } from './suivi.js';
 
 const $ = (s) => document.querySelector(s);
 
-export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, natif, terrainNatif }) {
+export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, natif, terrainNatif, revoirPreparer }) {
   const zone = document.createElement('section');
   zone.id = 'navigation'; zone.hidden = true; zone.setAttribute('aria-label', 'Guidage GPS');
   zone.innerHTML = `<div class="nav-consigne"><span id="nav-fleche" aria-hidden="true">⇄</span><div><strong id="nav-distance">Votre itinéraire</strong><p id="nav-instruction" role="status">Choisir un trajet</p></div></div>
@@ -12,7 +12,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     <div class="nav-bas"><div class="nav-destination"><small>Destination</small><strong id="nav-cible"></strong></div>
       <div id="nav-choix"><div class="nav-preferences"><label><input type="checkbox" id="nav-sans-peage" /> Éviter les péages</label><label id="nav-parcours-label"><input type="checkbox" id="nav-parcours" /> Passer par le parcours du voyage</label></div><fieldset id="nav-liste"><legend>Itinéraires disponibles</legend><div id="nav-itineraires"></div></fieldset></div>
       <div class="nav-mesures"><div><strong id="nav-duree">—</strong><small>restantes</small></div><div><strong id="nav-reste">—</strong><small>distance</small></div><div><strong id="nav-arrivee">—</strong><small>arrivée</small></div></div>
-      <p id="nav-statut" role="status"></p>
+      <p id="nav-statut" role="status"></p><button type="button" id="nav-preparer" hidden>Revoir les conditions de Préparer</button>
       <button type="button" id="nav-confirmer" disabled>Démarrer le guidage</button><button type="button" id="nav-reprendre" hidden>Reprendre le trajet actuel</button>
       <div class="nav-actions"><button type="button" id="nav-changer" hidden>Itinéraires</button><button type="button" id="nav-reessayer" hidden>Actualiser</button><button type="button" id="nav-fin">Fermer</button></div>
       <div class="nav-credit">Guidage © OpenStreetMap · FOSSGIS / OSRM · <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Corriger la carte</a></div></div>`;
@@ -43,6 +43,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     }
   }
   async function garderEcran() {
+    if (!memoire.lire('navigationEcran', true)) return;
     if (!actif || document.visibilityState !== 'visible') return;
     if (natif) return terrainNatif.guidageEcran({ actif: true }).catch(() => {});
     const id = generation;
@@ -90,6 +91,16 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     }).join('');
     montrerTraces();
   }
+  function compatibles(liste) {
+    const raisons = [];
+    const valides = liste.filter((c) => {
+      const problemes = options.verifierTrajet?.(c.trajet) ?? [];
+      raisons.push(...problemes);
+      return !problemes.length;
+    });
+    if (liste.length && !valides.length) erreur = 'Aucun itinéraire ne respecte les conditions de Préparer. ' + [...new Set(raisons)].join(' ');
+    return valides;
+  }
   function changerMode(nouveau) {
     mode = nouveau; zone.dataset.mode = mode;
     $('#nav-choix').hidden = mode !== 'choix';
@@ -118,8 +129,8 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
       const nouveaux = await calculerItineraires(position, cible, { signal: controleur.signal, eviterPeages,
         passages });
       if (!actif || id !== generation) return;
-      candidats = nouveaux.map((t, i) => ({ trajet: t, progression: 0, eviterPeages,
-        nom: avecParcours ? 'Parcours du voyage' + (i ? ' · variante ' + (i + 1) : '') : 'Itinéraire ' + (i + 1) }));
+      candidats = compatibles(nouveaux.map((t, i) => ({ trajet: t, progression: 0, eviterPeages,
+        nom: avecParcours ? 'Parcours du voyage' + (i ? ' · variante ' + (i + 1) : '') : 'Itinéraire ' + (i + 1) })));
       selection = null; rendreListe(); montrerTraces(true);
     } catch (e) {
       if (actif && id === generation) erreur = navigator.onLine === false ? 'Hors connexion. Seul un trajet déjà enregistré peut être proposé.' : e.name === 'AbortError' ? 'Le calcul a pris trop de temps. Réessayez.' : e.message;
@@ -138,12 +149,14 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     if (selection == null) return;
     const choisi = candidats[selection];
     if (!choisi || !gpsActif() || !positionRecente(obtenirPosition())) return;
+    const problemes = options.verifierTrajet?.(choisi.trajet) ?? [];
+    if (problemes.length) { erreur = 'Revoir Préparer : ' + problemes.join(' '); rendre(); return; }
     const etat = suivreGuidage(choisi.trajet, obtenirPosition(), { progression: choisi.progression });
     if (etat.genre === 'hors-route' || etat.genre === 'gps') {
       erreur = 'Votre position a changé ou ce trajet est trop éloigné. Actualisez les itinéraires.'; rendre(); return;
     }
     trajet = choisi.trajet; dernier = etat; options.eviterPeages = choisi.eviterPeages;
-    derniereAnnonce = ''; sauvegarde = -Infinity; suit = true; vue3d = true;
+    derniereAnnonce = ''; sauvegarde = -Infinity; suit = true; vue3d = memoire.lire('navigationVue', '3d') === '3d';
     annulerCalcul(); changerMode('guidage'); carte.afficherChoixGuidage([], null); carte.afficherGuidage(trajet.coords);
     conserver(); garderEcran(); rendre();
   }
@@ -151,6 +164,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     annulerCalcul(); selection = null; erreur = ''; dejaCalcule = false;
     candidats = trajet ? [{ trajet, progression: dernier?.progression ?? 0, eviterPeages: Boolean(options.eviterPeages), nom: 'Trajet actuel' }] : cache ? [cache] : [];
     if ($('#nav-sans-peage').checked) candidats = candidats.filter((c) => c.eviterPeages);
+    if (positionRecente(obtenirPosition())) candidats = compatibles(candidats);
     changerMode('choix'); carte.afficherGuidage([]); rendreListe(); montrerTraces(true); rendre();
   }
   function rendre() {
@@ -158,6 +172,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     const position = obtenirPosition();
     const signal = gpsActif() && positionRecente(position);
     if (mode === 'choix') {
+      $('#nav-preparer').hidden = !revoirPreparer || charge || (!erreur && candidats.length > 0);
       $('#nav-fleche').textContent = '⇄'; $('#nav-distance').textContent = 'Votre itinéraire';
       $('#nav-instruction').textContent = !signal ? 'En attente de votre position GPS' : charge ? 'Recherche des itinéraires…' : candidats.length + ' itinéraire' + (candidats.length > 1 ? 's disponibles' : ' disponible');
       $('#nav-confirmer').disabled = selection == null || !signal || charge;
@@ -166,7 +181,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
       $('#nav-statut').textContent = charge ? 'Calcul en ligne · position et destination envoyées à FOSSGIS / OSRM' : erreur || (navigator.onLine === false ? 'Hors ligne · trajets enregistrés uniquement' : selection == null ? 'Aucun itinéraire sélectionné' : 'Itinéraire sélectionné · prêt à démarrer');
       if (signal && !dejaCalcule && !charge) {
         if (navigator.onLine !== false) calculer();
-        else dejaCalcule = true;
+        else { candidats = compatibles(cache ? [cache] : []); rendreListe(); dejaCalcule = true; }
       }
       return;
     }
@@ -180,7 +195,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
       $('#nav-duree').textContent = Math.max(1, Math.round(etat.secondes / 60)) + ' min';
       $('#nav-reste').textContent = distanceGuidage(etat.reste);
       $('#nav-arrivee').textContent = new Date(Date.now() + etat.secondes * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-      if (suit) carte.suivreNavigation(etat.coord, etat.cap, vue3d);
+      carte.suivreNavigation([position.lon, position.lat], etat.cap, vue3d, suit);
       const palier = etat.distance < 40 ? 'maintenant' : etat.distance < 250 ? 'proche' : 'loin';
       const cle = etat.genre === 'arrivee' ? 'arrivee' : etat.prochaine.debut + ':' + palier;
       if (cle !== derniereAnnonce) {
@@ -189,7 +204,9 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
       }
       if (Math.abs(etat.progression - sauvegarde) > 100) { conserver(); sauvegarde = etat.progression; }
     } else {
-      taire(); $('#nav-distance').textContent = etat.genre === 'gps' ? 'GPS' : 'Hors trajet';
+      if (['hors-route', 'rejoindre'].includes(etat.genre) && signal) carte.suivreNavigation([position.lon, position.lat], etat.cap ?? dernier?.cap ?? 0, vue3d, suit);
+      else carte.positionNavigationInconnue();
+      taire(); $('#nav-distance').textContent = etat.genre === 'gps' ? 'GPS' : etat.genre === 'rejoindre' ? distanceGuidage(etat.distance) : 'Hors trajet';
       $('#nav-fleche').textContent = '⌖'; $('#nav-instruction').textContent = etat.texte;
       for (const id of ['nav-duree', 'nav-reste', 'nav-arrivee']) $('#' + id).textContent = '—';
     }
@@ -206,9 +223,10 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
   async function demarrer(destination, parametres = {}) {
     arreter(); const id = ++generation;
     cible = { ...destination }; options = { ...parametres }; trajet = null; dernier = null; erreur = ''; sauvegarde = -Infinity;
-    actif = true; suit = true; vue3d = true; zone.hidden = false; dejaCalcule = false; cacheDisponible = true;
+    actif = true; suit = true; vue3d = memoire.lire('navigationVue', '3d') === '3d'; voix = memoire.lire('navigationVoix', true); zone.hidden = false; dejaCalcule = false; cacheDisponible = true;
     $('#nav-sans-peage').checked = Boolean(options.eviterPeages); $('#nav-parcours').checked = false;
     $('#nav-parcours-label').hidden = typeof options.passages !== 'function' || options.parcoursDisponible === false;
+    zone.querySelector('.nav-preferences').hidden = Boolean(options.conditionsPreparees);
     document.body.classList.add('en-navigation'); $('#nav-cible').textContent = cible.nom || 'Destination'; mesurer();
     cache = lireCache();
     await carte.pret;
@@ -218,12 +236,13 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     rendre();
   }
   $('#nav-fin').onclick = arreter;
+  $('#nav-preparer').onclick = () => { arreter(); revoirPreparer?.(); };
   $('#nav-confirmer').onclick = confirmer;
   $('#nav-changer').onclick = ouvrirChoix;
   $('#nav-reprendre').onclick = () => {
     if (!trajet) return;
     const etat = suivreGuidage(trajet, obtenirPosition(), dernier);
-    if (!gpsActif() || !['direct', 'arrivee'].includes(etat.genre)) { erreur = 'Le trajet actuel ne rejoint pas votre position. Choisissez un nouvel itinéraire.'; rendre(); return; }
+    if (!gpsActif() || !['direct', 'arrivee', 'rejoindre'].includes(etat.genre)) { erreur = 'Le trajet actuel ne rejoint pas votre position. Choisissez un nouvel itinéraire.'; rendre(); return; }
     annulerCalcul(); changerMode('guidage'); carte.afficherChoixGuidage([], null); carte.afficherGuidage(trajet.coords); garderEcran(); rendre();
   };
   $('#nav-reessayer').onclick = () => { if (mode === 'guidage') ouvrirChoix(); else calculer(); };
@@ -231,7 +250,7 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
   for (const id of ['nav-sans-peage', 'nav-parcours']) $('#' + id).onchange = ouvrirChoix;
   $('#nav-centrer').onclick = () => { suit = true; vue(); rendre(); };
   $('#nav-voix').onclick = () => { voix = !voix; memoire.ecrire('navigationVoix', voix); mettreVoix(); taire(); derniereAnnonce = ''; if (voix) annoncer('Annonces vocales activées'); };
-  zone.querySelectorAll('[data-nav-vue]').forEach((b) => b.onclick = () => { vue3d = b.dataset.navVue === '3d'; vue(); rendre(); });
+  zone.querySelectorAll('[data-nav-vue]').forEach((b) => b.onclick = () => { vue3d = b.dataset.navVue === '3d'; memoire.ecrire('navigationVue', b.dataset.navVue); vue(); rendre(); });
   carte.surChoixGuidage(choisir);
   carte.carte.on('dragstart', () => { if (actif && mode === 'guidage') { suit = false; vue(); } });
   window.addEventListener('offline', rendre);

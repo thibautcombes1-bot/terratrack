@@ -175,6 +175,16 @@ des idées proches (baignade, randonnée courte) même hors envies, en les propo
 - L'application GPS préférée est respectée dans les boutons des lieux et de la prochaine étape. Dans la comparaison du voyage, un trajet seulement affiché n'est plus présenté comme déjà choisi.
 - Vérification reprise le 27 octobre : 53 tests réussis, construction terrain et compilation iPhone 1.0 (build 5) signée. Essais visuels avec deux variantes réelles enregistrées : aucune présélection, confirmation obligatoire, reprise hors ligne explicite, aucun changement automatique hors trajet, affichage téléphone/ordinateur et respect de l'application GPS préférée.
 
+## Organisation, départ réel et conditions strictes du 27 octobre 2026
+
+- Préparer → Choisir → En route ; Réglages séparé regroupe les contrôles avancés, sans perdre véhicule, carburant, budget, nuitées, rythme, péages, niveau et choix GPS. Les champs déplacés restent associés au formulaire Préparer. Voix, vue 2D/3D et écran allumé sont mémorisés.
+- Organic Maps retiré des options, boutons et liens ; ancienne préférence migrée vers TerraTrack. Export KML conservé de façon générique.
+- Départ « Ma position » via une requête ponctuelle CoreLocation native, sans activer le suivi permanent ; nouvelle lecture au calcul du voyage. Refus, imprécision et délai dépassé restent des erreurs explicites.
+- Comparaisons et validation filtrent les conditions de Préparer, sans modifier silencieusement durée, envies, nuits, péages, niveau ou budget. Aucune route compatible : retour explicite vers Préparer. Les estimations de budget et d'autonomie dépendent des données et modèles disponibles.
+- Suivi natif par les positions GPS réelles, consignes suspendues après 15 s sans position ; marqueur actualisé même hors trajet ou après déplacement manuel de la carte. Un départ à proximité du réseau routier attend que le tracé soit rejoint sans inventer de progression.
+- Essais sur navigateur avec positions de test : migration Organic, départ exact, réglages persistés, parcours compatible validé, demande impossible refusée et choix de variantes. Ces essais ne remplacent pas un trajet réel sur iPhone.
+- Vérification finale : 61 tests réussis, construction web et compilation iPhone signée réussies. TerraTrack 1.0 (build 6) installée en mise à jour sur l'iPhone Air physique et lancement confirmé ; suivi en déplacement réel restant à essayer.
+
 ## Idées notées pour plus tard
 
 - Version Android (Capacitor sait le faire) puis Android Auto ; TerraTrack sur CarPlay demande une

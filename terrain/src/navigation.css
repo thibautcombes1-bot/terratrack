@@ -42,6 +42,7 @@
 #nav-confirmer { width: 100%; background: #1769e0 !important; border-color: #1769e0 !important; color: #fff; margin-bottom: 7px; }
 #nav-confirmer:disabled { background: #dce4ec !important; border-color: #dce4ec !important; color: #5e6d78; cursor: default; }
 #nav-reprendre { width: 100%; margin-bottom: 7px; }
+#nav-preparer { width: 100%; margin-bottom: 7px; color: #1769e0; }
 .nav-actions { display: flex; gap: 8px; }
 .nav-actions button { flex: 1; min-width: 0; }
 #navigation[data-mode='choix'] .nav-bas { max-height: 57dvh; overflow-y: auto; }

@@ -273,8 +273,10 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
     surChoixGuidage(rappel) {
       carte.on('click', 'choix-guidage', (ev) => rappel(Number(ev.features[0].properties.index)));
     },
-    suivreNavigation(coord, cap, vue3d = true) {
+    positionNavigationInconnue() { vehicule.remove(); },
+    suivreNavigation(coord, cap, vue3d = true, recentrer = true) {
       vehicule.setLngLat(coord).setRotation(cap).addTo(carte);
+      if (!recentrer) return;
       const cle = coord.join(',') + ':' + Math.round(cap) + ':' + vue3d + ':' + conteneur.clientWidth + ':' + conteneur.clientHeight;
       if (cle === derniereCamera) return;
       derniereCamera = cle;

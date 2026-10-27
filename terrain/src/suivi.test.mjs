@@ -15,6 +15,7 @@ test('le GPS écarte les points imprécis, incomplets ou impossibles', () => {
 test('un point ancien ou daté dans le futur ne devient pas un suivi en direct', () => {
   const point = lirePoint([maintenant, 44, 3, 8]);
   assert.equal(positionRecente(point, maintenant + 5000), true);
+  assert.equal(positionRecente(point, maintenant + 16000), false);
   assert.equal(positionRecente(point, maintenant + 61000), false);
   assert.equal(positionRecente(point, maintenant - 20000), false);
   assert.equal(positionRecente(null, maintenant), false);

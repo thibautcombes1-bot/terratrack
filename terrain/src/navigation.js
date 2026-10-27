@@ -1,6 +1,7 @@
 // Les manœuvres viennent d'OSRM ; aucune consigne n'est déduite des virages du tracé.
 import { distanceKm } from '../../commun/geo.js';
 import { positionRecente } from './suivi.js';
+import { facteurRoute } from '../../commun/carburant.js';
 
 export const SERVEUR_GUIDAGE = 'https://routing.openstreetmap.de/routed-car/route/v1/driving/';
 const pointValide = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180;
@@ -62,7 +63,8 @@ export function lireGuidage(reponse, cible, index = 0) {
     manoeuvres.push({ type: m.type, modifier: m.modifier, sortie: m.exit, nom: etape.name || etape.ref || '', debut, fin: metres, secondes: etape.duration, cap: m.bearing_after ?? 0 });
   }
   if (coords.length < 2 || !manoeuvres.length || manoeuvres.at(-1).type !== 'arrive') throw new Error('Le trajet reçu est incomplet.');
-  return { coords, cumul, manoeuvres, metres, secondes: manoeuvres.reduce((s, m) => s + m.secondes, 0),
+  return { coords, cumul, manoeuvres, metres, equivalents: manoeuvres.reduce((s, m) => s + (m.fin - m.debut) / 1000 * facteurRoute(m.secondes > 0 ? (m.fin - m.debut) / m.secondes * 3.6 : 50), 0),
+    secondes: manoeuvres.reduce((s, m) => s + m.secondes, 0),
     routes: [...new Set(manoeuvres.map((m) => m.nom).filter(Boolean))].slice(0, 3),
     cible: { lat: cible.lat, lon: cible.lon, nom: cible.nom || 'Destination' }, cree: Date.now() };
 }
@@ -124,8 +126,12 @@ export function suivreGuidage(trajet, position, precedent = null, maintenant = D
     const ecart = Math.hypot(ax + t * dx, ay + t * dy);
     if (ecart < meilleur.ecart - 0.1) meilleur = { ecart, s: trajet.cumul[i - 1] + t * (trajet.cumul[i] - trajet.cumul[i - 1]), index: i, t };
   }
-  if (meilleur.ecart > Math.max(50, position.precision * 1.5))
+  if (meilleur.ecart > Math.max(50, position.precision * 1.5)) {
+    const debut = lieu(trajet.coords[0]), distance = distanceKm(position, debut) * 1000;
+    if (ancien <= 5 && precedent?.genre !== 'direct' && distance <= 300)
+      return { genre: 'rejoindre', texte: 'Rejoignez le départ du tracé routier', progression: 0, position, cap: capEntre(position, debut), distance };
     return { genre: 'hors-route', texte: 'Vous avez quitté le trajet', progression: ancien, position, ecart: meilleur.ecart };
+  }
   const progression = Math.max(ancien, meilleur.s);
   const arrive = trajet.metres - progression < 40 && distanceKm(position, trajet.cible) * 1000 < 70;
   // La prochaine consigne est celle à l'entrée du segment suivant, pas celle déjà dépassée.

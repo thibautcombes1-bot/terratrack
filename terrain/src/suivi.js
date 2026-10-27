@@ -2,7 +2,7 @@
 import { preparerRoute, situer } from '../../server/itineraire.js';
 
 export const PRECISION_SUIVI_M = 100;
-export const FRAICHEUR_GPS_MS = 60000;
+export const FRAICHEUR_GPS_MS = 15000;
 
 export function dateLocale(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;

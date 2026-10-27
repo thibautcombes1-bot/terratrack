@@ -31,12 +31,18 @@ Dans `terrain/`, le compagnon de route, qui marche **sans réseau** sur toute la
 - **Carte** : les lieux à cocher (via ferrata, randonnées, eau potable…), leur fiche, et « Plus tard » pour le prochain road trip.
 - **Carburant, sans se ruiner** : consommation selon la route, autonomie, plein conseillé à la station la moins chère (prix de [prix-carburants.gouv.fr](https://www.prix-carburants.gouv.fr), du jour quand il y a du réseau), budget, et « ⛽ Avec mon plein » : où aller et revenir sans refaire le plein.
 - **Météo** ([Open-Meteo](https://open-meteo.com), 16 jours) : le parcours s'adapte (orage → pas de via ferrata, pluie → visites à l'abri, chaleur → baignade) ; couche Météo sur la carte.
-- **Guidage** par [Organic Maps](https://organicmaps.app) (hors ligne), Waze ou Plans ; la journée s'envoie à Organic Maps, et TerraTrack suit l'avancée en arrière-plan (étapes faites, avance ou retard).
+- **Guidage intégré** en 3D avec choix du trajet et suivi GPS du téléphone ; Waze et Plans restent facultatifs dans Réglages. Export générique KML de la journée.
 - **Historique**, photos et commentaires, notes vérifiées par le GPS.
 
 Les données (carte, routes, plus de 600 000 lieux) viennent d'OpenStreetMap. Le robot [`pack-france`](.github/workflows/pack-france.yml) les refait chaque lundi, et l'appli télécharge toute seule ce qui a changé, en Wi-Fi. Compilation et pack : [terrain/README.md](terrain/README.md).
 
 ## Guidage intégré en 3D
+
+L'application est organisée en Préparer → Choisir → En route, avec Carte, Favoris et une section Réglages séparée. Le départ peut être une commune ou « Ma position » : une position GPS ponctuelle est demandée au téléphone puis actualisée au calcul du voyage. Ce bouton n'active pas le suivi permanent.
+
+Les propositions respectent les conditions explicites de Préparer : dates, durée, rythme, envies, niveau, hébergements, péages, budget carburant estimé et autonomie avec réserve. Les tracés identiques sont dédupliqués. Si aucun trajet n'est compatible, l'application demande de revoir Préparer. Les conditions ne sont pas assouplies automatiquement ; une météo demandée mais non vérifiable empêche de confirmer une proposition. Réglages regroupe le véhicule et les choix avancés, ainsi que la voix, la vue 2D/3D et le maintien de l'écran allumé.
+
+Le GPS utilise les positions reçues du téléphone ; après 15 secondes sans position récente, les consignes sont suspendues. La position reste réelle hors du tracé et les déplacements manuels de la carte ne figent pas le marqueur. Aucun déplacement n'est simulé. Le lien Organic Maps et sa préférence ont été retirés ; les anciennes installations passent au guidage intégré.
 
 Le bouton « Choisir mon itinéraire » compare les routes disponibles avec leur tracé, distance et durée. Aucun itinéraire n'est présélectionné : le guidage commence après sélection puis confirmation. Les péages et le passage par le parcours du voyage sont des options explicites. Une sortie de route ne remplace jamais le trajet sans un nouveau choix. L'application GPS choisie dans les réglages est respectée.
 
@@ -165,7 +171,7 @@ TerraTrack avance par briques utilisables tout de suite :
 4. **Pack hors ligne** ✅ : appli iPhone avec carte, routes et lieux de toute la France, mis à jour chaque semaine.
 5. **Sentinelles** : retours de terrain (source tarie, accès fermé…) partagés de proche en proche par radio MeshCore, sans Internet.
 
-TerraTrack ne refait pas un GPS : pour le guidage virage par virage, il passe la main à OsmAnd ou Organic Maps, qui fonctionnent déjà hors ligne.
+Le guidage intégré utilise OSRM pour les manœuvres et le pack local pour la carte et la préparation. Un moteur complet de manœuvres hors ligne reste à ajouter.
 
 ## Licence
 

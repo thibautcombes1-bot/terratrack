@@ -153,3 +153,12 @@ input:focus { outline: 2px solid #246b5070; }
 @media(prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
 }
+.depart-localisation { display: grid; grid-template-columns: minmax(0, 1fr) 46px; gap: 8px; }
+#depart-gps { width: 46px; min-height: 46px; border: 1px solid var(--trait); background: white; border-radius: 8px; font-size: 26px; }
+#depart-gps-etat { color: var(--doux); font-weight: 400; font-size: 12px; }
+.reglage-case { display: flex; gap: 10px; align-items: center; min-height: 44px; margin-bottom: 8px; font-size: 13px; }
+.reglage-case input { width: 20px !important; height: 20px; flex-shrink: 0; accent-color: var(--vert); }
+#gps-vue { width: 100%; min-height: 44px; border: 1px solid var(--trait); border-radius: 8px; background: white; padding: 8px; font: inherit; }
+.onglets button { min-width: 0; font-size: 12px; letter-spacing: 0; }
+.sous-onglets { top: 0; background: var(--papier); }
+.erreur { scroll-margin-top: 90px; scroll-margin-bottom: 150px; }
