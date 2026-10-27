@@ -1,10 +1,10 @@
-# Contribuer à TerraTrack
+# Contribuer à Cap Away
 
-Merci de donner un coup de main ! TerraTrack est un projet de road trips, avec une application iPhone et une application web de terrain. Le projet évolue et certaines fonctions demandent encore des essais sur un vrai téléphone et sur la route.
+Merci de donner un coup de main ! Cap Away est un projet de road trips, avec une application iPhone et une application web de terrain. Le projet évolue et certaines fonctions demandent encore des essais sur un vrai téléphone et sur la route.
 
 ## Signaler un problème ou proposer une idée
 
-Pour une question, un retour d’essai ou une idée à discuter, utilisez les [Discussions TerraTrack](https://github.com/thibautcombes1-bot/terratrack/discussions). Les bugs reproductibles et les tâches précises vont dans les [issues](https://github.com/thibautcombes1-bot/terratrack/issues) ; les modifications de code se proposent par pull request.
+Pour une question, un retour d’essai ou une idée à discuter, utilisez les [Discussions Cap Away](https://github.com/thibautcombes1-bot/terratrack/discussions). Les bugs reproductibles et les tâches précises vont dans les [issues](https://github.com/thibautcombes1-bot/terratrack/issues) ; les modifications de code se proposent par pull request.
 
 Ouvrez une issue sur GitHub. Pour un bug, indiquez les étapes pour le reproduire, le résultat attendu et obtenu, le téléphone ou navigateur utilisé, ainsi que la version du projet si vous la connaissez. Une capture peut aider : retirez les informations personnelles, positions précises et données privées avant de la joindre.
 
@@ -26,6 +26,8 @@ L'application de terrain s'ouvre à l'adresse indiquée dans le terminal. Le pac
 Pour iOS, Xcode, les outils Apple et une signature adaptée sont nécessaires. Une compilation réussie ne remplace pas un essai sur iPhone, notamment pour le GPS, le fonctionnement en arrière-plan et le mode avion.
 
 ## Proposer une modification
+
+Pour commencer, consultez les tâches ouvertes : [accessibilité](https://github.com/thibautcombes1-bot/terratrack/issues/1), [petit pack de démo](https://github.com/thibautcombes1-bot/terratrack/issues/2) et [essais GPS sur iPhone](https://github.com/thibautcombes1-bot/terratrack/issues/3). L’accessibilité est étiquetée `good first issue`. Un commentaire sur l’issue permet d’annoncer que vous souhaitez la prendre et d’éviter deux travaux identiques.
 
 1. Ouvrez une issue pour une modification importante, afin de discuter du besoin.
 2. Créez une branche depuis `main` et gardez les changements ciblés.

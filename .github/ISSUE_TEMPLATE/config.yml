@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions, retours et discussions
+    url: https://github.com/thibautcombes1-bot/terratrack/discussions/4
+    about: Échanger avant d’ouvrir une tâche de code ou poser une question sur le projet.

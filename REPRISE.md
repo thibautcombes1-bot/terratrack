@@ -1,3 +1,9 @@
+# Reprise Cap Away
+
+La V1 conserve le plan existant : terminer les vérifications, sans recommencer l’audit ni réécrire l’architecture. Voir AUDIT_CAP_AWAY.md, RAPPORT_CAP_AWAY_V1.md et APP_STORE_CHECKLIST.md. Bundle ID fr.terratrack.terrain et stockage historique conservés. Code AGPL inchangé, marque distincte. Prix décidé dans App Store Connect ; aucun paywall/abonnement.
+
+## Notes historiques de reprise
+
 # Reprendre TerraTrack avec un autre assistant (ChatGPT, Claude…)
 
 Ce fichier sert à reprendre le projet sans rien perdre. Copie le bloc « À coller » dans
@@ -202,6 +208,15 @@ des idées proches (baignade, randonnée courte) même hors envies, en les propo
 - Discussions GitHub activées à la demande de l’utilisateur, réglage relu après activation. Liens ajoutés au README et au guide de contribution. Aucun message publié ni invitation envoyée automatiquement.
 
 ## Idées notées pour plus tard
+
+## Accueil des contributeurs et démo du 27 octobre 2026
+
+- Trois demandes d’aide publiées : #1 accessibilité des onglets et choix des voyages (`good first issue`, `help wanted`, `accessibility`), #2 pack de démonstration léger et #3 essais GPS sur iPhone. Ce sont des tâches ouvertes par le projet, pas des retours externes reçus.
+- Accueil publié dans Discussions : https://github.com/thibautcombes1-bot/terratrack/discussions/4. L’épinglage n’a pas été effectué : l’API ne l’expose pas et le navigateur disponible n’était pas connecté à GitHub. Le README pointe directement vers l’accueil.
+- Préversion `terrain-v1.0-preview.7` publiée depuis le commit `af877157735c70c272b312cd34791376f591cf50`, avec une vidéo H.264 muette de 24,52 s et `SHA256SUMS`. Elle contient le code et la démo, pas d’IPA universellement installable.
+- Démo de l’application web réelle : départ, trois voyages, choix, étapes et guidage 3D avec une réponse OSRM en ligne. Position de test fixe à Lodève, sans déplacement simulé ; les limites et crédits cartographiques restent visibles. Le guidage en déplacement réel reste à éprouver sur iPhone.
+- README avec aperçu, liens de démo et tâches ; modèle de pull request et lien vers les discussions dans les modèles d’issues. `docs/PARTAGER.md` contient les messages prêts à copier-coller. Le propriétaire a choisi de les partager lui-même : aucune diffusion extérieure à GitHub n’a été faite.
+- Vérification : 66 tests réussis, aucun ignoré ; construction terrain réussie. Aucun changement au code de l’application depuis le build 7 installé, donc pas de nouvelle installation iPhone pour ces ajouts de présentation.
 
 - Version Android (Capacitor sait le faire) puis Android Auto ; TerraTrack sur CarPlay demande une
   autorisation d'Apple (appli publiée).
