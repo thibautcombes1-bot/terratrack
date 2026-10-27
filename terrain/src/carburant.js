@@ -2,6 +2,7 @@
 // du jour, demandés au service de l'État (prix-carburants.gouv.fr) quand il y a du réseau.
 // Sans réseau, on garde les prix du pack (au plus une semaine).
 import { memoire } from './outils.js';
+import { serviceAutorise } from './confidentialite.js';
 
 export const CARBURANTS = { gazole: 'Gazole', SP95: 'SP95', E10: 'E10', SP98: 'SP98', E85: 'E85', GPL: 'GPL' };
 /** Véhicules : consommation et réservoir habituels (modifiables). */
@@ -35,7 +36,7 @@ const demandes = new Map();
  */
 export async function rafraichirPrix(stations) {
   const ids = [...new Set(stations.map((s) => s.idPrix).filter((id) => id && Date.now() - (demandes.get(id) ?? 0) > 30 * 60 * 1000))].slice(0, 100);
-  if (!ids.length || navigator.onLine === false) return false;
+  if (!serviceAutorise('services') || !ids.length || navigator.onLine === false) return false;
   const params = new URLSearchParams({
     where: `id in (${ids.join(',')})`,
     select: ['id', ...Object.values(CHAMPS).flatMap((c) => [`${c}_prix`, `${c}_maj`])].join(','),

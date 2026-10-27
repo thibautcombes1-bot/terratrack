@@ -4,6 +4,8 @@ import { avancerSurFeuille, dateLocale, etatGps, extrairePointsPassage, lirePoin
 import { COULEURS, creerCarte } from './carte.js';
 import { creerNavigation } from './navigation-interface.js';
 import { COULEURS_ROADTRIPS, proposerRoadtrips } from './roadtrips.js';
+import { demanderAccordService, definirAccordService, serviceAutorise } from './confidentialite.js';
+import { CONFIDENTIALITE, ASSISTANCE } from './informations.js';
 import { h, heure, duree, km, versMinutes, dateTexte, moisTexte, simplifier, memoire } from './outils.js';
 import { chargerPack, etatMiseAJour, miseAJourPossible, verifierMiseAJour } from './pack.js';
 import { comprendre, correspond, iaDisponible } from './ia.js';
@@ -150,6 +152,7 @@ function ouvrirOnglet(onglet, sousVue) {
   if (sousVue) vue = sousVue;
   const nom = onglet === 'parcours' ? vue : onglet === 'carte' ? 'carte-vue' : onglet;
   if (nom === 'reglages') {
+    for (const service of ['guidage', 'services']) document.querySelector(`[data-service="${service}"]`).checked = serviceAutorise(service);
     $('#gps-voix').checked = memoire.lire('navigationVoix', true);
     $('#gps-ecran').checked = memoire.lire('navigationEcran', true);
     $('#gps-vue').value = memoire.lire('navigationVue', '3d');
@@ -207,6 +210,20 @@ for (const b of document.querySelectorAll('[data-vue]')) b.addEventListener('cli
 // ---------- Préparer ----------
 
 const form = $('#preparer');
+for (const service of ['guidage', 'services']) {
+  const champ = document.querySelector(`[data-service="${service}"]`);
+  champ.checked = serviceAutorise(service);
+  champ.addEventListener('change', () => {
+    if (!champ.checked) definirAccordService(service, false);
+    else champ.checked = demanderAccordService(service);
+  });
+}
+document.addEventListener('click', (ev) => {
+  const bouton = ev.target.closest('[data-information]');
+  if (!bouton) return;
+  $('#texte-information').innerHTML = bouton.dataset.information === 'confidentialite' ? CONFIDENTIALITE : ASSISTANCE;
+  $('#informations').showModal();
+});
 for (const bloc of [...form.querySelectorAll('details.reglage')]) {
   for (const champ of bloc.querySelectorAll('input, select, textarea')) champ.setAttribute('form', 'preparer');
   $('#reglages-voyage').append(bloc);
@@ -472,6 +489,7 @@ form.addEventListener('submit', async (ev) => {
     if (plan?.valide && plan.jours[0].date < dateLocale()) archiver(plan);
     // « Beau temps » : la météo des jours du voyage tout autour du départ, avant de choisir où aller.
     if (p.veutBeauTemps) {
+      if (!demanderAccordService('services')) return montrerErreur(erreur, 'Le beau temps demandé nécessite votre accord aux prévisions en ligne. Revoir les conditions dans Préparer.');
       bouton.textContent = 'Où fera-t-il beau ?';
       // Jusqu'où regarder : comme le parcours (jours et rythme), et pas plus loin que le plein.
       const rythme = RYTHMES[p.rythme] ?? RYTHMES.normal;

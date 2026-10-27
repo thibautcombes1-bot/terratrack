@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { CONFIDENTIALITE, ASSISTANCE, pageInformation } from './src/informations.js';
 
 const racine = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,6 +20,8 @@ function serviceWorker() {
     name: 'terratrack-service-worker',
     apply: 'build',
     generateBundle(_, bundle) {
+      for (const [nom, titre, contenu] of [['confidentialite.html', 'Confidentialité', CONFIDENTIALITE], ['assistance.html', 'Assistance', ASSISTANCE]])
+        this.emitFile({ type: 'asset', fileName: nom, source: pageInformation(titre, contenu) });
       // La carte (plus d'un gigaoctet pour la France) n'est pas mise en cache d'avance : lue par morceaux.
       const publics = fichiersPublics(path.join(racine, 'public')).filter((f) => !f.endsWith('.pmtiles'));
       const fichiers = ['./', ...Object.keys(bundle), ...publics].map((f) =>

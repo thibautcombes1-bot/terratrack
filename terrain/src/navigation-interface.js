@@ -1,6 +1,7 @@
 import { calculerItineraires, suivreGuidage, distanceGuidage, symboleManoeuvre } from './navigation.js';
 import { h, memoire, duree } from './outils.js';
 import { positionRecente } from './suivi.js';
+import { demanderAccordService } from './confidentialite.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -117,7 +118,12 @@ export function creerNavigation({ carte, obtenirPosition, gpsActif, activerGps, 
     const position = obtenirPosition();
     if (!actif || mode !== 'choix' || charge || !gpsActif() || !positionRecente(position)) return;
     const id = ++generation;
-    dejaCalcule = true; charge = true; erreur = ''; departCalcul = position;
+    dejaCalcule = true;
+    if (!demanderAccordService('guidage')) {
+      erreur = 'Calcul en ligne non autorisé. Votre choix est modifiable dans Réglages → Services en ligne.';
+      rendre(); return;
+    }
+    charge = true; erreur = ''; departCalcul = position;
     const eviterPeages = $('#nav-sans-peage').checked;
     const avecParcours = $('#nav-parcours').checked;
     const controleur = new AbortController(); requete = controleur;

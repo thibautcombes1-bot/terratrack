@@ -1,6 +1,7 @@
 // Météo (Open-Meteo, gratuit, sans clé) : prévisions heure par heure jusqu'à 16 jours, par cases
 // d'environ 25 km. Récupérées quand il y a du réseau, gardées sur le téléphone pour le hors ligne.
 import { memoire } from './outils.js';
+import { serviceAutorise } from './confidentialite.js';
 
 const SERVICE = 'https://api.open-meteo.com/v1/forecast';
 const PAS = 0.25; // degrés : une case d'environ 25 km
@@ -21,7 +22,7 @@ function sauver() {
  * Renvoie true si de nouvelles prévisions sont arrivées.
  */
 export async function chargerMeteo(points) {
-  if (navigator.onLine === false) return false;
+  if (!serviceAutorise('services') || navigator.onLine === false) return false;
   const voulues = [...new Set(points.map((p) => cleDe(p.lat, p.lon)))].filter((cle) => !cases.has(cle) || Date.now() - cases.get(cle).recu > FRAICHEUR);
   if (!voulues.length) return false;
   let recues = false;
