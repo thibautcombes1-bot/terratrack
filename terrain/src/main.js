@@ -1,4 +1,4 @@
-// TerraTrack, appli de terrain : préparer, suivre le parcours, improviser en route — sans réseau.
+// Cap Away, appli de terrain : préparer, suivre le parcours, improviser en route — sans réseau.
 import { BOUTONS, suggerer } from './boutons.js';
 import { avancerSurFeuille, dateLocale, etatGps, extrairePointsPassage, lirePoint, positionRecente } from './suivi.js';
 import { COULEURS, creerCarte } from './carte.js';
@@ -236,7 +236,7 @@ const GROUPES = {
   // Réglages gardés d'un voyage à l'autre (pas dans le brouillon) : véhicule et appli de guidage.
   vehicule: { options: Object.fromEntries(Object.entries(VEHICULES).map(([k, v]) => [k, v.nom])), unique: true, defaut: [lireVehicule().type], reglage: true },
   carburant: { options: CARBURANTS, unique: true, defaut: [lireVehicule().carburant], reglage: true },
-  guidage: { options: [['interne', 'TerraTrack 3D'], ['waze', 'Waze'], ['plans', 'Plans']], unique: true, defaut: [memoire.lire('guidage', 'interne')], reglage: true },
+  guidage: { options: [['interne', 'Cap Away 3D'], ['waze', 'Waze'], ['plans', 'Plans']], unique: true, defaut: [memoire.lire('guidage', 'interne')], reglage: true },
 };
 for (const [nom, g] of Object.entries(GROUPES)) {
   const zone = document.querySelector(`[data-groupe="${nom}"]`);
@@ -977,7 +977,7 @@ function rendreJour(j, i) {
 /**
  * Le guidage intégré conserve le choix d'itinéraire ; les GPS externes restent optionnels.
  */
-const NOMS_GUIDAGE = { interne: 'TerraTrack 3D', waze: 'Waze', plans: 'Plans' };
+const NOMS_GUIDAGE = { interne: 'Cap Away 3D', waze: 'Waze', plans: 'Plans' };
 const guidagePrefere = () => memoire.lire('guidage', 'interne');
 async function guider(appli, cible) {
   if (appli === 'interne') {
@@ -1180,7 +1180,7 @@ function rendreEtatGps() {
   for (const bouton of document.querySelectorAll('[data-bouton], #form-demande button, #demande')) bouton.disabled = !disponible;
   $('#info-guidage').textContent = guidagePrefere() === 'interne'
     ? 'Calcul du guidage avec une connexion, puis consignes conservées sur ce téléphone.'
-    : `Guidage avec ${NOMS_GUIDAGE[guidagePrefere()]}. TerraTrack suit le GPS du téléphone pendant votre navigation.`;
+    : `Guidage avec ${NOMS_GUIDAGE[guidagePrefere()]}. Cap Away suit le GPS du téléphone pendant votre navigation.`;
   navigation.actualiser();
 }
 
@@ -1284,7 +1284,7 @@ async function activerSuivi() {
         const j = plan.jours[jourActif ?? 0];
         const prem = j?.etapes?.[0] ?? j?.fin;
         TerrainNatif.liveActivityDemarrer({
-          titreVoyage: plan.depart?.nom ? `Trip · ${plan.depart.nom}` : 'TerraTrack',
+          titreVoyage: plan.depart?.nom ? `Trip · ${plan.depart.nom}` : 'Cap Away',
           jourNumero: (jourActif ?? 0) + 1,
           prochaineEtape: prem?.nom ?? 'Étape suivante',
           kmRestants: 0,
@@ -1513,11 +1513,11 @@ async function envoyerJournee(j) {
   elements.push(point(`${jour.fin.genre === 'nuit' ? 'Nuit' : 'Arrivée'} : ${jour.fin.nom}`, `Arrivée ${heure(jour.fin.arriveeMin)}`, jour.fin));
 
   const kml = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xml(`TerraTrack · Jour ${j + 1} · ${dateTexte(jour.date)}`)}</name>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xml(`Cap Away · Jour ${j + 1} · ${dateTexte(jour.date)}`)}</name>
 ${elements.join('\n')}
 <Placemark><name>Trajet du jour (Belle route)</name><LineString><coordinates>${ligne}</coordinates></LineString></Placemark>
 </Document></kml>`;
-  const nom = `TerraTrack-jour-${j + 1}.kml`;
+  const nom = `CapAway-jour-${j + 1}.kml`;
   if (natif) {
     afficherToast('Exporter le tracé et les étapes de la journée au format KML.');
     await TerrainNatif.partager({ nom, contenu: kml }).catch((e) => alert(e.message));
@@ -1550,7 +1550,7 @@ function ouvrirNotation(lieu) {
   const passage = passageValide(lieu.id);
   if (!passage)
     return alert(
-      `Pour noter « ${lieu.nom || lieu.type} », il faut y être passé : TerraTrack le vérifie avec le GPS (à moins de ${RAYON_M} m, précision ${PRECISION_MAX_M} m). Active « 📍 Ma position » quand tu y es ; le passage reste valable 24 h.`,
+      `Pour noter « ${lieu.nom || lieu.type} », il faut y être passé : Cap Away le vérifie avec le GPS (à moins de ${RAYON_M} m, précision ${PRECISION_MAX_M} m). Active « 📍 Ma position » quand tu y es ; le passage reste valable 24 h.`,
     );
   let etoiles = noteDe(lieu.id)?.etoiles ?? 0;
   const mots = new Set(noteDe(lieu.id)?.mots ?? []);
@@ -1731,7 +1731,7 @@ const nomDe = (l) => l.nom || l.type;
 const allerA = (l) => [
   'Y aller',
   [
-    { texte: '🧭 TerraTrack 3D', faire: () => guider('interne', l) },
+    { texte: '🧭 Cap Away 3D', faire: () => guider('interne', l) },
     { texte: '🧭 Waze', faire: () => guider('waze', l) },
     { texte: '🗺️ Plans', faire: () => guider('plans', l) },
     { texte: '👁️ Voir sur la carte', faire: () => { regler(0); carte.voler(l, 14); } },

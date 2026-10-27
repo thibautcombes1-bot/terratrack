@@ -23,7 +23,7 @@ export function positionRecente(position, maintenant = Date.now()) {
 
 export function etatGps(etat, position, maintenant = Date.now()) {
   if (etat.autorisation === 'refusee' || etat.autorisation === 'limitee')
-    return { genre: 'erreur', titre: 'Localisation non autorisée', detail: 'Autorise la localisation de TerraTrack dans les réglages de l’iPhone.' };
+    return { genre: 'erreur', titre: 'Localisation non autorisée', detail: 'Autorise la localisation de Cap Away dans les réglages de l’iPhone.' };
   if (etat.autorisation === 'desactivee')
     return { genre: 'erreur', titre: 'Localisation désactivée', detail: 'Active le service de localisation de l’iPhone pour suivre ton voyage.' };
   if (!etat.demande && !etat.actif)

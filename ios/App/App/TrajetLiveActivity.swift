@@ -70,7 +70,7 @@ public struct TrajetLiveActivityWidget: Widget {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.secondary)
                     }
-                    Text(attendActualisation(context) ? "Ouvrez TerraTrack pour actualiser" : "Arrivée ~ \(context.state.heureArrivee)")
+                    Text(attendActualisation(context) ? "Ouvrez Cap Away pour actualiser" : "Arrivée ~ \(context.state.heureArrivee)")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                     if let auto = context.state.autonomieKm {
@@ -100,7 +100,7 @@ public struct TrajetLiveActivityWidget: Widget {
                         Text(attendActualisation(context) ? "— km" : String(format: "%.0f km", context.state.kmRestants))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(.green)
-                        Text(attendActualisation(context) ? "Ouvrez TerraTrack" : "~ \(context.state.heureArrivee)")
+                        Text(attendActualisation(context) ? "Ouvrez Cap Away" : "~ \(context.state.heureArrivee)")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }

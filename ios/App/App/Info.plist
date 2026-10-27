@@ -9,7 +9,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleDisplayName</key>
-	<string>TerraTrack</string>
+	<string>Cap Away</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>TerraTrack utilise l’appareil photo pour ajouter tes photos aux lieux visités. Elles restent sur ton iPhone.</string>
+	<string>Cap Away utilise l’appareil photo pour ajouter tes photos aux lieux visités. Elles restent sur ton iPhone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>TerraTrack ouvre ta photothèque pour ajouter des photos aux lieux visités. Elles restent sur ton iPhone.</string>
+	<string>Cap Away ouvre ta photothèque pour ajouter des photos aux lieux visités. Elles restent sur ton iPhone.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
@@ -39,9 +39,9 @@
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Pendant ton voyage, TerraTrack suit ton trajet en arrière-plan : étapes faites, avancée, carburant. Le guidage intégré envoie ta position et ta destination au service de calcul OSRM quand tu le lances.</string>
+	<string>Pendant ton voyage, Cap Away suit ton trajet en arrière-plan : étapes faites, avancée, carburant. Le guidage intégré envoie ta position et ta destination au service de calcul OSRM quand tu le lances.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TerraTrack utilise ta position pour partir de l’endroit où tu es et suivre réellement ton trajet. Le calcul du guidage intégré transmet le départ et la destination au service OSRM.</string>
+	<string>Cap Away utilise ta position pour partir de l’endroit où tu es et suivre réellement ton trajet. Le calcul du guidage intégré transmet le départ et la destination au service OSRM.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

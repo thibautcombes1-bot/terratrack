@@ -6,7 +6,7 @@ const DOSSIER = path.resolve('.cache');
 const memoire = new Map();
 const enCours = new Map();
 
-export const AGENT = 'TerraTrack/0.1 (projet open source, usage personnel)';
+export const AGENT = 'Cap Away/0.1 (projet open source, usage personnel)';
 
 /**
  * Renvoie la valeur en cache si elle a moins de `dureeMs`, sinon appelle

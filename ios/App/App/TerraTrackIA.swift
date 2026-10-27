@@ -1,4 +1,4 @@
-// Couche IA de TerraTrack : le modèle de langage d'Apple, sur l'iPhone, hors ligne.
+// Couche IA de Cap Away : le modèle de langage d'Apple, sur l'iPhone, hors ligne.
 // Il comprend une demande en français (« un coin à l'ombre pour pique-niquer et se baigner »)
 // et la traduit en bouton + envies + mots-clés ; le calcul des détours reste fait par l'appli.
 import Capacitor
@@ -47,7 +47,7 @@ public class IAPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private static let consignes = """
-        Tu es le copilote de TerraTrack, une appli de road trip qui fonctionne sans réseau.
+        Tu es le copilote de Cap Away, une appli de road trip qui fonctionne sans réseau.
         On te donne une demande faite en route. Tu choisis le bouton adapté :
         pause (eau, pique-nique, baignade, abri, toilettes), decouvrir (lieux et activités à voir ou à faire),
         manger (boulangerie, épicerie, ferme, marché, restaurant), dormir (camping, gîte, refuge, bivouac).

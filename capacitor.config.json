@@ -1,6 +1,6 @@
 {
   "appId": "fr.terratrack.terrain",
-  "appName": "TerraTrack",
+  "appName": "Cap Away",
   "webDir": "terrain/dist",
   "ios": {
     "contentInset": "never",

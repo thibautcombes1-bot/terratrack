@@ -1,6 +1,6 @@
 ---
 name: Signaler un problème
-about: Décrire un problème rencontré dans TerraTrack
+about: Décrire un problème rencontré dans Cap Away
 title: ""
 labels: ""
 ---

@@ -22,7 +22,7 @@ SELECT ?lieu ?nom ?coord ?label ?depNom WHERE {
 const reponse = await fetch('https://query.wikidata.org/sparql', {
   method: 'POST',
   headers: {
-    'User-Agent': 'TerraTrack/0.1 (projet open source)',
+    'User-Agent': 'Cap Away/0.1 (projet open source)',
     Accept: 'application/sparql-results+json',
     'Content-Type': 'application/x-www-form-urlencoded',
   },

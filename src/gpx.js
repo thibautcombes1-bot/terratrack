@@ -22,7 +22,7 @@ export function telechargerGpx(voyage) {
     .join('\n');
 
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="TerraTrack" xmlns="http://www.topografix.com/GPX/1/1">
+<gpx version="1.1" creator="Cap Away" xmlns="http://www.topografix.com/GPX/1/1">
   <metadata><name>${h(voyage.titre)}</name><desc>${h(voyage.resume)}</desc><time>${new Date().toISOString()}</time></metadata>
 ${points.join('\n')}
   <trk><name>${h(voyage.titre)}</name><trkseg>
@@ -30,7 +30,7 @@ ${piste}
   </trkseg></trk>
 </gpx>
 `;
-  const nom = `terratrack-${voyage.titre
+  const nom = `CapAway-${voyage.titre
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/gi, '-')

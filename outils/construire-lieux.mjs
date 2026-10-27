@@ -1,11 +1,11 @@
 // Construit server/donnees/lieux.json : les lieux de France qui valent un détour
 // (articles Wikipédia géolocalisés, via Wikidata), classés comme le fait l'appli.
-// Une fois construit, TerraTrack n'a plus besoin d'interroger Wikipédia (qui limite les requêtes).
+// Une fois construit, Cap Away n'a plus besoin d'interroger Wikipédia (qui limite les requêtes).
 //   node outils/construire-lieux.mjs
 import fs from 'node:fs/promises';
 import { categorieDe, POINT_HAUT, SANS_INTERET } from '../server/lieux.js';
 
-const AGENT = 'TerraTrack/0.1 (projet open source, construction de données)';
+const AGENT = 'Cap Away/0.1 (projet open source, construction de données)';
 const FRANCE = { sud: 41.3, nord: 51.2, ouest: -5.2, est: 9.7 };
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 

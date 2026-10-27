@@ -279,7 +279,7 @@ async function unesco(bbox, brut) {
     for (let essai = 1; !donnees; essai++) {
       const reponse = await fetch('https://query.wikidata.org/sparql', {
         method: 'POST',
-        headers: { 'User-Agent': 'TerraTrack/0.1 (construction de données)', Accept: 'application/sparql-results+json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'User-Agent': 'Cap Away/0.1 (construction de données)', Accept: 'application/sparql-results+json', 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ query: requete }),
       });
       if (reponse.ok) donnees = await reponse.json();

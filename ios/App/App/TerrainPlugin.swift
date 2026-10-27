@@ -321,7 +321,7 @@ public class TerrainPlugin: CAPPlugin, CAPBridgedPlugin, AVSpeechSynthesizerDele
                 call.reject("Live Activities non autorisées sur cet iPhone")
                 return
             }
-            let titre = call.getString("titreVoyage") ?? "TerraTrack"
+            let titre = call.getString("titreVoyage") ?? "Cap Away"
             let jour = call.getInt("jourNumero") ?? 1
             let prochaine = call.getString("prochaineEtape") ?? "Étape suivante"
             let km = call.getDouble("kmRestants") ?? 0.0

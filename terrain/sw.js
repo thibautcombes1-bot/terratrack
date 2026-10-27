@@ -1,4 +1,4 @@
-// Service worker de TerraTrack : à la première visite (en Wi-Fi), tout est mis de côté
+// Service worker de Cap Away : à la première visite (en Wi-Fi), tout est mis de côté
 // (appli, carte, pack de la région). Ensuite tout est servi depuis le téléphone, même en mode avion.
 const VERSION = '__VERSION__';
 const FICHIERS = __FICHIERS__;

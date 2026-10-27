@@ -1,4 +1,4 @@
-// TerraTrack : assemble le globe, les nœuds mesh, le formulaire et le carnet.
+// Cap Away : assemble le globe, les nœuds mesh, le formulaire et le carnet.
 import { creerCarnet } from './carnet.js';
 import { creerFormulaire } from './formulaire.js';
 import * as Cesium from 'cesium';
