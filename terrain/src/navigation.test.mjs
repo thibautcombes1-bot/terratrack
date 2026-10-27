@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculerGuidage, lireGuidage, suivreGuidage, texteManoeuvre } from './navigation.js';
+import { calculerGuidage, calculerItineraires, lireItineraires, lireGuidage, suivreGuidage, texteManoeuvre } from './navigation.js';
 
 const maintenant = Date.UTC(2026, 9, 26, 12);
 const cible = { lat: 44.002, lon: 3.002, nom: 'Destination' };
@@ -77,4 +77,30 @@ test('le calcul demande les manœuvres, garde les points de passage et ne masque
   assert.equal(url.searchParams.get('exclude'), 'toll');
   assert.equal(url.searchParams.get('waypoints'), '0;2');
   await assert.rejects(calculerGuidage({ lat:44,lon:3 },cible,{demander:async () => { throw new Error('Réseau coupé'); }}), /Réseau coupé/);
+});
+
+test('les alternatives gardent leur géométrie, durée et consignes propres', () => {
+  const alternative = structuredClone(reponse.routes[0]);
+  alternative.legs[0].steps[0] = etape('depart', 'straight', [[3,44],[3.001,44.002]], 'Autre route', 75);
+  alternative.legs[0].steps[1] = etape('turn', 'right', [[3.001,44.002],[3.002,44.002]], 'Rue de droite', 50);
+  const trajets = lireItineraires({ code:'Ok', routes:[reponse.routes[0], alternative] }, cible);
+  assert.equal(trajets.length, 2);
+  assert.notDeepEqual(trajets[0].coords, trajets[1].coords);
+  assert.notEqual(trajets[0].secondes, trajets[1].secondes);
+  assert.equal(trajets[1].routes[0], 'Autre route');
+});
+
+test('les variantes dupliquées et incomplètes ne créent pas de faux choix', () => {
+  const trajets = lireItineraires({ code:'Ok', routes:[reponse.routes[0], reponse.routes[0], {legs:[]}] }, cible);
+  assert.equal(trajets.length, 1);
+  assert.throws(() => lireItineraires({ code:'Ok', routes:[{legs:[]}] }, cible));
+});
+
+test('le calcul entre départ et arrivée demande les alternatives au serveur', async () => {
+  let url;
+  const trajets = await calculerItineraires({ lat:44,lon:3 }, cible, { demander:async (adresse) => {
+    url = new URL(adresse); return { ok:true, json:async () => reponse };
+  } });
+  assert.equal(url.searchParams.get('alternatives'), 'true');
+  assert.equal(trajets.length, 1);
 });

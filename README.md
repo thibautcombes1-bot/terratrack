@@ -38,7 +38,9 @@ Les données (carte, routes, plus de 600 000 lieux) viennent d'OpenStreetMap. Le
 
 ## Guidage intégré en 3D
 
-Le bouton « Démarrer le GPS 3D » ouvre désormais la navigation dans TerraTrack : carte inclinée avec bâtiments du pack, suivi dans le sens du déplacement, prochaine manœuvre, distance et arrivée estimée. Les annonces vocales utilisent la voix française du téléphone ; une commande permet de les couper.
+Le bouton « Choisir mon itinéraire » compare les routes disponibles avec leur tracé, distance et durée. Aucun itinéraire n'est présélectionné : le guidage commence après sélection puis confirmation. Les péages et le passage par le parcours du voyage sont des options explicites. Une sortie de route ne remplace jamais le trajet sans un nouveau choix. L'application GPS choisie dans les réglages est respectée.
+
+Le guidage intégré utilise une carte inclinée avec les bâtiments du pack, le suivi dans le sens du déplacement, la prochaine manœuvre, la distance et l'arrivée estimée. Les annonces vocales utilisent la voix française du téléphone ; une commande permet de les couper.
 
 Les consignes viennent du moteur OSRM de FOSSGIS. Une connexion est nécessaire pour le calcul initial et le recalcul après une sortie de route ; la position, la destination et les points de passage sont alors envoyés à ce service. Le trajet calculé est conservé localement pendant au plus 24 heures pour poursuivre ou reprendre le guidage sans réseau. Une perte de GPS suspend les consignes. Le pack routier local reste utilisé pour la préparation des voyages ; il ne fournit pas encore un moteur de manœuvres totalement hors ligne. Le guidage OSRM est un profil voiture et ne vérifie pas les gabarits des vans.
 

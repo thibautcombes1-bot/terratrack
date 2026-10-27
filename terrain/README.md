@@ -4,7 +4,9 @@
 
 Le guidage 3D utilise la carte locale MapLibre/Protomaps et les étapes de navigation du service OSRM de FOSSGIS. Le calcul initial et les recalculs demandent une connexion ; les consignes d'un trajet calculé sont conservées localement pour le poursuivre hors réseau. Un seul trajet est conservé, pendant au plus 24 heures. Le profil est automobile, sans contrôle des gabarits.
 
-L'écran de navigation affiche les manœuvres en français, la distance restante et l'arrivée estimée. Les commandes permettent de passer en 2D, couper la voix, reprendre le suivi après déplacement de la carte et terminer le guidage. Le GPS ancien ou imprécis suspend les consignes ; une sortie de route demande un recalcul. Sur iPhone, la voix et le maintien de l'écran allumé passent par le plugin natif Terrain. Les consignes sont mises à jour au premier plan.
+Le choix d'itinéraire est explicite : variantes réellement disponibles, tracés, distances et durées ; aucune présélection ni départ automatique. Les options péage et parcours du voyage sont réglables avant le calcul. Un trajet enregistré est proposé hors ligne mais doit aussi être choisi puis confirmé. Le bouton Itinéraires permet de changer en cours de guidage ; une sortie de route ne provoque aucun remplacement automatique.
+
+L'écran de navigation affiche les manœuvres en français, la distance restante et l'arrivée estimée. Les commandes permettent de passer en 2D, couper la voix, reprendre le suivi après déplacement de la carte et terminer le guidage. Le GPS ancien ou imprécis suspend les consignes. Sur iPhone, la voix et le maintien de l'écran allumé passent par le plugin natif Terrain. Les consignes sont mises à jour au premier plan.
 
 Code : `terrain/src/navigation.js` (réponse OSRM et progression), `navigation-interface.js` (session et commandes), `navigation.css` et `carte.js`. Les tests ne contactent pas le serveur public ; ne pas utiliser ce service pour des tests automatisés en charge.
 

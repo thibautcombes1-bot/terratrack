@@ -78,6 +78,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
           'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0], 'fill-extrusion-opacity': 0.8 },
       });
       carte.addSource('guidage', { type: 'geojson', data: vide });
+      carte.addSource('choix-guidage', { type: 'geojson', data: vide });
       carte.addSource('parcours', { type: 'geojson', data: vide });
       carte.addSource('arrets', { type: 'geojson', data: vide });
       carte.addSource('suggestions', { type: 'geojson', data: vide });
@@ -212,6 +213,10 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
           'circle-stroke-width': 3,
         },
       });
+      carte.addLayer({ id: 'choix-guidage-bord', type: 'line', source: 'choix-guidage', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': 10 } });
+      carte.addLayer({ id: 'choix-guidage', type: 'line', source: 'choix-guidage', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#687d8b', 'line-width': 6 } });
       carte.addLayer({ id: 'guidage-bord', type: 'line', source: 'guidage', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#ffffff', 'line-width': 11 } });
       carte.addLayer({ id: 'guidage-trace', type: 'line', source: 'guidage', layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -244,9 +249,33 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
       donnees('guidage', coords.length > 1 ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {},
         geometry: { type: 'LineString', coordinates: coords } }] } : vide);
     },
+    afficherChoixGuidage(trajets, selection) {
+      vehicule.remove();
+      donnees('choix-guidage', { type: 'FeatureCollection', features: trajets.map((t, i) => ({
+        type: 'Feature', properties: { index: i }, geometry: { type: 'LineString', coordinates: t.coords },
+      })) });
+      this.afficherGuidage(selection == null ? [] : trajets[selection]?.coords ?? []);
+    },
+    cadrerChoixGuidage(trajets, selection) {
+      carte.resize();
+      const coords = selection == null ? trajets.flatMap((t) => t.coords) : trajets[selection]?.coords ?? [];
+      if (!coords.length) return;
+      const bornes = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+      const haut = document.querySelector('.nav-consigne')?.getBoundingClientRect();
+      const bas = document.querySelector('.nav-bas')?.getBoundingClientRect();
+      const largeur = conteneur.clientWidth, hauteur = conteneur.clientHeight;
+      const paysage = hauteur < 500 && largeur > hauteur;
+      const padding = paysage ? { top: (haut?.bottom ?? 100) + 12, bottom: 30, left: 20, right: (bas?.width ?? largeur * 0.46) + 24 }
+        : largeur >= 760 ? { top: 40, bottom: 40, left: 460, right: 40 }
+          : { top: Math.min((haut?.bottom ?? 110) + 12, hauteur * 0.25), right: 24, left: 24, bottom: Math.min((bas?.height ?? 300) + 16, hauteur * 0.59) };
+      carte.fitBounds(bornes, { padding, retainPadding: true, pitch: 0, bearing: 0, maxZoom: 15, duration: 0 });
+    },
+    surChoixGuidage(rappel) {
+      carte.on('click', 'choix-guidage', (ev) => rappel(Number(ev.features[0].properties.index)));
+    },
     suivreNavigation(coord, cap, vue3d = true) {
       vehicule.setLngLat(coord).setRotation(cap).addTo(carte);
-      const cle = coord.join(',') + ':' + Math.round(cap) + ':' + vue3d;
+      const cle = coord.join(',') + ':' + Math.round(cap) + ':' + vue3d + ':' + conteneur.clientWidth + ':' + conteneur.clientHeight;
       if (cle === derniereCamera) return;
       derniereCamera = cle;
       const grand = conteneur.clientWidth >= 760;
@@ -315,6 +344,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
     /** Toucher une étape du parcours sur la carte. */
     surClicEtape(rappel) {
       carte.on('click', 'arrets', (ev) => {
+        if (navigation) return;
         const f = ev.features.find((x) => x.properties.genre === 'etape');
         if (f) rappel(f.properties.id);
       });
@@ -345,6 +375,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
     /** Toucher un lieu à découvrir : une marge de 14 px, car les points sont petits sous le doigt. */
     surClicDecouverte(rappel) {
       carte.on('click', (ev) => {
+        if (navigation) return;
         const { x, y } = ev.point;
         const zone = [[x - 14, y - 14], [x + 14, y + 14]];
         if (carte.queryRenderedFeatures(ev.point, { layers: ['arrets', 'suggestions'] }).length) return;
@@ -354,7 +385,7 @@ export function creerCarte(conteneur, { pmtiles, meta }) {
     },
     /** Clic sur une suggestion : rappelle avec son identifiant. */
     surClicSuggestion(rappel) {
-      carte.on('click', 'suggestions', (ev) => rappel(ev.features[0].properties.id));
+      carte.on('click', 'suggestions', (ev) => { if (!navigation) rappel(ev.features[0].properties.id); });
     },
   };
 }

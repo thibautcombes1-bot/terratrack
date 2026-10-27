@@ -42,8 +42,8 @@ export function symboleManoeuvre(m) {
 }
 
 /** Géométries détaillées des étapes : leur cumul conserve l'ordre, même sur une boucle. */
-export function lireGuidage(reponse, cible) {
-  const route = reponse?.routes?.[0];
+export function lireGuidage(reponse, cible, index = 0) {
+  const route = reponse?.routes?.[index];
   if (reponse?.code !== 'Ok' || !pointValide(cible) || !route?.legs?.length) throw new Error('Aucun itinéraire de guidage disponible.');
   const coords = [], cumul = [], manoeuvres = [];
   let metres = 0;
@@ -62,18 +62,48 @@ export function lireGuidage(reponse, cible) {
     manoeuvres.push({ type: m.type, modifier: m.modifier, sortie: m.exit, nom: etape.name || etape.ref || '', debut, fin: metres, secondes: etape.duration, cap: m.bearing_after ?? 0 });
   }
   if (coords.length < 2 || !manoeuvres.length || manoeuvres.at(-1).type !== 'arrive') throw new Error('Le trajet reçu est incomplet.');
-  return { coords, cumul, manoeuvres, metres, cible: { lat: cible.lat, lon: cible.lon, nom: cible.nom || 'Destination' }, cree: Date.now() };
+  return { coords, cumul, manoeuvres, metres, secondes: manoeuvres.reduce((s, m) => s + m.secondes, 0),
+    routes: [...new Set(manoeuvres.map((m) => m.nom).filter(Boolean))].slice(0, 3),
+    cible: { lat: cible.lat, lon: cible.lon, nom: cible.nom || 'Destination' }, cree: Date.now() };
 }
 
-export async function calculerGuidage(depart, cible, { signal, passages = [], eviterPeages = false, demander = fetch } = {}) {
+export function lireItineraires(reponse, cible) {
+  if (reponse?.code !== 'Ok' || !Array.isArray(reponse.routes) || !reponse.routes.length) throw new Error('Aucun itinéraire de guidage disponible.');
+  const vus = new Set();
+  const trajets = reponse.routes.flatMap((_, i) => {
+    try {
+      const trajet = lireGuidage(reponse, cible, i);
+      const cle = JSON.stringify(trajet.coords);
+      if (vus.has(cle)) return [];
+      vus.add(cle);
+      return [trajet];
+    } catch { return []; }
+  });
+  if (!trajets.length) throw new Error('Les consignes reçues sont incomplètes.');
+  return trajets;
+}
+
+let prochainDepart = 0;
+export async function calculerItineraires(depart, cible, { signal, passages = [], eviterPeages = false, demander = fetch } = {}) {
   if (!pointValide(depart) || !pointValide(cible)) throw new Error('Position ou destination invalide.');
   const points = [depart, ...passages.slice(0, 23), cible];
   if (!points.every(pointValide)) throw new Error('Point de passage invalide.');
   const url = new URL(points.map((p) => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';'), SERVEUR_GUIDAGE);
-  url.search = new URLSearchParams({ steps: 'true', overview: 'full', geometries: 'geojson', continue_straight: 'true', waypoints: '0;' + (points.length - 1), ...(eviterPeages ? { exclude: 'toll' } : {}) });
+  url.search = new URLSearchParams({ alternatives: points.length === 2 ? 'true' : 'false', steps: 'true', overview: 'full', geometries: 'geojson', continue_straight: 'true', waypoints: '0;' + (points.length - 1), ...(eviterPeages ? { exclude: 'toll' } : {}) });
+  // Le serveur public limite les requêtes à une par seconde, même après des changements rapides d'options.
+  if (demander === fetch) {
+    const attente = Math.max(0, prochainDepart - Date.now());
+    prochainDepart = Date.now() + attente + 1100;
+    if (attente) await new Promise((resolu) => setTimeout(resolu, attente));
+    signal?.throwIfAborted();
+  }
   const reponse = await demander(url.href, { signal });
   if (!reponse.ok) throw new Error(eviterPeages ? 'Le guidage sans péage est indisponible sur ce serveur.' : 'Le calcul du guidage est indisponible.');
-  return lireGuidage(await reponse.json(), cible);
+  return lireItineraires(await reponse.json(), cible);
+}
+
+export async function calculerGuidage(depart, cible, options) {
+  return (await calculerItineraires(depart, cible, options))[0];
 }
 
 /** Cherche dans une fenêtre de progression pour ne pas sauter une boucle ou un carrefour revisité. */

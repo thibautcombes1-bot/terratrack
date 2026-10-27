@@ -167,6 +167,14 @@ des idées proches (baignade, randonnée courte) même hors envies, en les propo
 - Vérification : 50 tests passent ; construction terrain et compilation iPhone signée réussies. Essais visuels automatisés sur petit écran et ordinateur, GPS et réseau simulés, sans erreur dans l'application complète. La navigation et la voix en trajet réel restent à vérifier sur le téléphone.
 - TerraTrack 1.0 (build 4) installée en mise à jour sur l'iPhone Air physique ; présence et numéro de build relus après installation. Le lancement automatique a été refusé parce que le téléphone était verrouillé ; l'affichage sur l'appareil n'a donc pas été vérifié.
 
+## Choix des itinéraires du 26 octobre 2026
+
+- Comparaison des variantes OSRM : tracés, distances, durées et routes traversées. Aucune présélection ; le guidage et la voix démarrent uniquement après choix puis confirmation.
+- Options péages et parcours du voyage explicites. Les itinéraires indisponibles ou dupliqués ne deviennent pas des choix fictifs. Un trajet enregistré est proposé hors ligne sans reprise automatique.
+- Le bouton Itinéraires permet de changer de route ; les sorties de trajet et retours du réseau n'imposent plus de nouveau tracé.
+- L'application GPS préférée est respectée dans les boutons des lieux et de la prochaine étape. Dans la comparaison du voyage, un trajet seulement affiché n'est plus présenté comme déjà choisi.
+- Vérification reprise le 27 octobre : 53 tests réussis, construction terrain et compilation iPhone 1.0 (build 5) signée. Essais visuels avec deux variantes réelles enregistrées : aucune présélection, confirmation obligatoire, reprise hors ligne explicite, aucun changement automatique hors trajet, affichage téléphone/ordinateur et respect de l'application GPS préférée.
+
 ## Idées notées pour plus tard
 
 - Version Android (Capacitor sait le faire) puis Android Auto ; TerraTrack sur CarPlay demande une

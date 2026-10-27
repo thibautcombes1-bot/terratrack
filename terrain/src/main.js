@@ -624,6 +624,7 @@ function blocItineraires() {
   const v = vehiculeCalcul();
   const tarif = TARIF_PEAGE[v.type] ?? 0.1;
   const actuel = ITINERAIRES.find((i) => i.options.eviterPeages === Boolean(plan.params.eviterPeages) && i.options.economie === Boolean(plan.params.economie))?.cle;
+  const confirme = Boolean(plan.params.itineraireChoisi);
   const lignes = comparaison.liste.map((it) => {
     const litres = (it.equivalents * v.conso) / 100;
     const peage = (it.metresPeage / 1000) * tarif;
@@ -637,9 +638,9 @@ function blocItineraires() {
         .map(
           (l) => `
         <div class="station">
-          <b>${h(l.nom)}</b>${l.cle === actuel ? ' · <span class="marge-ok">choisi</span>' : ''}${Math.abs(l.total - moinsCher) < 0.5 ? ' · 💶 le moins cher' : ''}
+          <b>${h(l.nom)}</b>${l.cle === actuel ? confirme ? ' · <span class="marge-ok">choisi</span>' : ' · affiché' : ''}${Math.abs(l.total - moinsCher) < 0.5 ? ' · 💶 le moins cher' : ''}
           <small>${km(l.metres)} · ${duree(l.secondes / 60)} de route · ~${litresTexte(l.litres)} de ${h(CARBURANTS[v.carburant].toLowerCase())} (${euros(l.carburant)})${l.peage >= 1 ? ` · péages ~${euros(l.peage)}` : ' · sans péage'} → <b>~${euros(l.total)}</b></small>
-          ${l.cle === actuel ? '' : `<div class="actions"><button type="button" data-itineraire="${l.cle}">Choisir</button></div>`}
+          ${l.cle === actuel && confirme ? '' : `<div class="actions"><button type="button" data-itineraire="${l.cle}">Choisir</button></div>`}
         </div>`,
         )
         .join('')}
@@ -835,6 +836,7 @@ async function guider(appli, cible) {
   if (appli === 'interne') {
     const jour = plan?.jours[jourActif];
     return navigation.demarrer(cible, {
+      parcoursDisponible: Boolean(jour?.coords?.length),
       eviterPeages: Boolean(jour?.eviterPeages),
       passages(depart, arrivee) {
         if (!jour?.coords?.length) return [];
@@ -859,13 +861,14 @@ async function guider(appli, cible) {
   }
   window.open(appli === 'waze' ? `https://waze.com/ul?ll=${point.lat},${point.lon}&navigate=yes` : `https://maps.apple.com/?daddr=${point.lat},${point.lon}&q=${n}&dirflg=d`, '_blank');
 }
-const boutonGuidage = (l) => `<button type="button" data-guide="${l.lat},${l.lon}" data-nom="${h(l.nom ?? '')}">🧭 TerraTrack 3D</button>`;
+const libelleGuidage = () => guidagePrefere() === 'interne' ? 'Choisir mon itinéraire' : 'Continuer avec ' + NOMS_GUIDAGE[guidagePrefere()];
+const boutonGuidage = (l) => `<button type="button" data-guide="${l.lat},${l.lon}" data-nom="${h(l.nom ?? '')}">🧭 ${h(libelleGuidage())}</button>`;
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-guide]');
   if (!b) return;
   ev.stopPropagation();
   const [lat, lon] = b.dataset.guide.split(',');
-  guider('interne', { lat: Number(lat), lon: Number(lon), nom: b.dataset.nom });
+  guider(guidagePrefere(), { lat: Number(lat), lon: Number(lon), nom: b.dataset.nom });
 }, true);
 
 /** L'information et sa date : vérifiée sur place, ou dernière mise à jour dans OpenStreetMap. */
@@ -1206,7 +1209,7 @@ const etapesFaites = () => new Set(plan ? tousLesPassages().filter((p) => p.date
 
 let prochaineEtape = null;
 document.addEventListener('click', (ev) => {
-  if (ev.target.closest('[data-prochaine]') && prochaineEtape) guider('interne', prochaineEtape);
+  if (ev.target.closest('[data-prochaine]') && prochaineEtape) guider(guidagePrefere(), prochaineEtape);
 });
 
 /** Où j'en suis : km faits, étapes faites, prochaine étape, arrivée estimée et écart au programme. */
@@ -1216,7 +1219,7 @@ function rendreAvancee() {
   const j = plan.jours[jourActif];
   prochaineEtape = j.etapes.find((e) => !etapesFaites().has(e.id)) ?? j.fin;
   if (!positionRecente(position) || !etatSuivi.actif) {
-    zone.innerHTML = `<div class="carte-direct attente-gps"><span class="surtitre">PROCHAINE ÉTAPE</span><h2>${h(prochaineEtape.nom)}</h2><p>Votre position GPS mettra à jour la distance, l’avancée et l’heure d’arrivée.</p><button type="button" class="principal" data-prochaine>Démarrer le GPS 3D <span aria-hidden="true">↗</span></button></div>`;
+    zone.innerHTML = `<div class="carte-direct attente-gps"><span class="surtitre">PROCHAINE ÉTAPE</span><h2>${h(prochaineEtape.nom)}</h2><p>Votre position GPS mettra à jour la distance, l’avancée et l’heure d’arrivée.</p><button type="button" class="principal" data-prochaine>${h(libelleGuidage())} <span aria-hidden="true">↗</span></button></div>`;
     return;
   }
   const avancement = avancerSurFeuille(j, position, etapesFaites());
@@ -1235,7 +1238,7 @@ function rendreAvancee() {
       <div class="ligne-direct"><span class="surtitre">PROCHAINE ÉTAPE</span><span class="badge-direct">En direct</span></div>
       <h2>${h(prochaine.nom)}</h2>
       <div class="prochaine-distance">${versProchaine ? `${km(versProchaine.metres)} <span>· ${duree(versProchaine.secondes / 60)}</span>` : 'Calcul du trajet indisponible'}</div>
-      <button type="button" class="principal" data-prochaine>Démarrer le GPS 3D <span aria-hidden="true">↗</span></button>
+      <button type="button" class="principal" data-prochaine>${h(libelleGuidage())} <span aria-hidden="true">↗</span></button>
       <div class="progression-voyage"><div><strong>${Math.round(faitKm)} <span>/ ${Math.round(totalKm)} km</span></strong><span>${pourcent} %</span></div><div class="jauge" role="progressbar" aria-label="Avancée du jour" aria-valuenow="${pourcent}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pourcent}%"></span></div></div>
       <div class="mesures-direct"><div><small>Arrivée du jour</small><strong>${arrivee == null ? '—' : heure(arrivee)}</strong></div><div><small>Feuille de route</small><strong class="${ecart > 5 ? 'retard' : ''}">${h(retard)}</strong></div><div><small>Étapes atteintes</small><strong>${faites.length} / ${j.etapes.length}</strong></div></div>
       ${ecartKm > 0.5 ? `<p class="alerte">Vous êtes à ${ecartKm.toFixed(1).replace('.', ',')} km du parcours prévu.</p>` : ''}

@@ -736,6 +736,7 @@ export function comparerItineraires(pack, plan) {
 
 /** Refait tout le voyage avec la façon choisie. */
 export function choisirItineraire(pack, plan, options) {
+  plan.params.itineraireChoisi = true;
   plan.params.eviterPeages = options.eviterPeages;
   plan.params.economie = options.economie;
   for (const j of plan.jours) {

@@ -28,6 +28,23 @@
 .nav-credit { margin-top: 6px; font-size: 9px; color: #65777c; text-align: center; }
 .nav-credit a { color: inherit; }
 .nav-vehicule { width: 28px; height: 36px; background: #1769e0; clip-path: polygon(50% 0,100% 100%,50% 78%,0 100%); filter: drop-shadow(0 0 3px white); }
+.nav-preferences { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.nav-preferences label { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 13px; }
+.nav-preferences input, .nav-option input { width: 19px; height: 19px; margin: 0; flex-shrink: 0; accent-color: #1769e0; }
+#nav-liste { border: 0; padding: 0; margin: 8px 0; min-width: 0; }
+#nav-liste legend { font-size: 12px; color: #53656c; margin-bottom: 4px; padding: 0; }
+#nav-itineraires { max-height: clamp(72px, calc(57dvh - 250px), 170px); overflow-y: auto; overscroll-behavior: contain; }
+.nav-option { display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 8px 4px; border-top: 1px solid #e2e8eb; cursor: pointer; }
+.nav-option:has(input:checked) { background: #edf4ff; }
+.nav-option > span { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 3px 6px; width: 100%; min-width: 0; font-size: 13px; }
+.nav-option strong { font-size: 13px; font-weight: 600; }
+.nav-option small { grid-column: 1/-1; font-size: 11px; color: #53656c; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#nav-confirmer { width: 100%; background: #1769e0 !important; border-color: #1769e0 !important; color: #fff; margin-bottom: 7px; }
+#nav-confirmer:disabled { background: #dce4ec !important; border-color: #dce4ec !important; color: #5e6d78; cursor: default; }
+#nav-reprendre { width: 100%; margin-bottom: 7px; }
+.nav-actions { display: flex; gap: 8px; }
+.nav-actions button { flex: 1; min-width: 0; }
+#navigation[data-mode='choix'] .nav-bas { max-height: 57dvh; overflow-y: auto; }
 @media (min-width:760px) {
   .nav-consigne { width: 420px; right: auto; left: 16px; }
   .nav-outils { left: 16px; }
@@ -38,4 +55,6 @@
   .nav-outils { top: auto; bottom: 16px; }
   .nav-bas { left: auto; width: 46%; padding: 8px 12px; }
   #nav-instruction { font-size: 15px; } .nav-mesures { padding: 7px 0; }
+  #navigation[data-mode='choix'] .nav-bas { max-height: calc(100dvh - 16px); bottom: 8px; }
+  #nav-itineraires { max-height: 100px; }
 }
