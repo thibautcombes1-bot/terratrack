@@ -199,6 +199,7 @@ des idées proches (baignade, randonnée courte) même hors envies, en les propo
 - Vérifié : 66 tests réussis, aucun ignoré ; construction terrain et compilation iPhone 1.0 (build 7) signée réussies. JavaScript et CSS de l’application signée identiques à la construction vérifiée. Essais navigateur avec le pack France et une position GPS de test : trois voyages distincts, clic sur tracé, sélection, retour comparaison, persistance, téléphone/ordinateur/petit écran et conservation du voyage après recherche impossible. Guidage en déplacement réel restant à vérifier.
 
 - Installation en mise à jour confirmée sur l’iPhone Air physique ; version 1.0 et build 7 relus après installation. Le lancement automatique a été refusé car le téléphone était verrouillé. Affichage et guidage en déplacement réel sur cet appareil non vérifiés pendant cette intervention.
+- Discussions GitHub activées à la demande de l’utilisateur, réglage relu après activation. Liens ajoutés au README et au guide de contribution. Aucun message publié ni invitation envoyée automatiquement.
 
 ## Idées notées pour plus tard
 

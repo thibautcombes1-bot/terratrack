@@ -4,6 +4,8 @@ Merci de donner un coup de main ! TerraTrack est un projet de road trips, avec u
 
 ## Signaler un problème ou proposer une idée
 
+Pour une question, un retour d’essai ou une idée à discuter, utilisez les [Discussions TerraTrack](https://github.com/thibautcombes1-bot/terratrack/discussions). Les bugs reproductibles et les tâches précises vont dans les [issues](https://github.com/thibautcombes1-bot/terratrack/issues) ; les modifications de code se proposent par pull request.
+
 Ouvrez une issue sur GitHub. Pour un bug, indiquez les étapes pour le reproduire, le résultat attendu et obtenu, le téléphone ou navigateur utilisé, ainsi que la version du projet si vous la connaissez. Une capture peut aider : retirez les informations personnelles, positions précises et données privées avant de la joindre.
 
 Les retours utiles comprennent les parcours incohérents, les lieux mal placés, l'accessibilité, les difficultés d'installation et les tests hors ligne. Les horaires, conditions d'accès, restrictions de circulation et niveaux d'activités doivent être vérifiés auprès de sources fiables : le pack peut être incomplet ou ancien.

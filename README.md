@@ -62,6 +62,7 @@ Le projet est en cours de développement : les parcours, les données de terrain
 
 Pour installer le projet, lancer les tests ou proposer une correction, consultez [CONTRIBUTING.md](CONTRIBUTING.md).
 
+- **Échanger et poser une question** : [Discussions TerraTrack](https://github.com/thibautcombes1-bot/terratrack/discussions), pour les retours d’essai, les idées et les questions sur le projet.
 - **Signaler** un bug, un lieu mal placé ou une idée : onglet *Issues*.
 - **Améliorer les données** : TerraTrack lit OpenStreetMap. Corriger un camping, une source ou une via ferrata sur [openstreetmap.org](https://www.openstreetmap.org) améliore l'appli pour tout le monde au pack suivant.
 - **Proposer du code** : une *pull request*, avec `npm test` qui passe. Le code, les commentaires et les textes sont en français.
