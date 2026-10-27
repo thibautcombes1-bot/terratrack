@@ -5,7 +5,9 @@
 - 72 tests automatisés réussis, aucun échec ni test ignoré.
 - Compilation web de terrain et synchronisation Capacitor réussies.
 - Archive iOS Release 1.0 (8) réussie avec Xcode 27.1.
-- Export App Store signé réussi après connexion du compte Apple ; export de l’archive finale en cours de vérification.
+- Export App Store signé réussi après connexion du compte Apple ; export final également réussi : /private/tmp/CapAway-final-1.0-8-export/App.ipa.
+- Installation de la mise à jour sur iPhone réussie ; lancement empêché par le verrouillage de l’appareil, sans conclusion sur le fonctionnement GPS réel.
+- Pages assistance/confidentialité : GitHub Pages activé, déploiement initial en cours à la dernière vérification.
 - Contrôle navigateur mobile 390 × 844 : clair/sombre, réglages et politique accessibles, aucun débordement horizontal ni erreur JavaScript. Ce contrôle ne valide pas la conduite réelle.
 
 ## Prêt TestFlight / App Store
